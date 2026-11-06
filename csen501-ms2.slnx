@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="csen501-ms2.sqlproj">
+    <Build />
+    <Deploy />
+  </Project>
+</Solution>

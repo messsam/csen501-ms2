@@ -1,0 +1,14 @@
+# Visual Studio per-user IDE state (open tabs, cache DB, workspace state)
+.vs/
+
+# Build output
+bin/
+obj/
+
+# Per-user project settings
+*.user
+*.suo
+
+# SSDT database model cache and its ESE journal (regenerated on open/build)
+*.dbmdl
+*.jfm
