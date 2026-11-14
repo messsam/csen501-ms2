@@ -1,5 +1,5 @@
 <Solution>
-  <Project Path="csen501-ms2.sqlproj">
+  <Project Path="csen501-ms2.sqlproj" Id="10d97962-03a7-4c64-b89a-13dccb238fc3">
     <Build />
     <Deploy />
   </Project>
