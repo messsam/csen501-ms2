@@ -303,3 +303,804 @@ CREATE PROCEDURE dbo.dropAllTables AS
 	DROP TABLE IF EXISTS dbo.Users;
 	DROP TABLE IF EXISTS dbo.Zone;
 GO
+EXEC dbo.createAllTables;
+GO
+
+
+-- Section 4.2: Basic Data Retrieval (Views)
+-- Mohamed Amr (64-24301)
+CREATE VIEW dbo.ActiveVouchers AS
+	SELECT
+		voucher_id,
+		promo_code,
+		customer_id,
+		is_percentage,
+		amount,
+		expiry_date
+	FROM dbo.Voucher
+	WHERE status = 'Unused'
+	  AND expiry_date >= CAST(GETDATE() AS DATE);
+GO
+
+-- ============================================================================
+-- Section 4.3: Accounts: Registration, Login and Password
+-- ============================================================================
+
+-- Mohamed Amr (64-24301)
+CREATE PROCEDURE dbo.Customer_Register
+	@first_name VARCHAR(30),
+	@middle_name VARCHAR(30),
+	@last_name VARCHAR(30),
+	@username VARCHAR(30),
+	@password VARCHAR(30),
+	@email VARCHAR(100),
+	@phone CHAR(11),
+	@dob DATE
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @first_name IS NULL OR LTRIM(RTRIM(@first_name)) = ''
+	   OR @last_name IS NULL OR LTRIM(RTRIM(@last_name)) = ''
+	   OR @username IS NULL OR LTRIM(RTRIM(@username)) = ''
+	   OR @password IS NULL OR LTRIM(RTRIM(@password)) = ''
+	   OR @email IS NULL OR LTRIM(RTRIM(@email)) = ''
+	   OR @phone IS NULL OR LEN(@phone) <> 11 OR @phone LIKE '%[^0-9]%'
+	   OR (@dob IS NOT NULL AND @dob > CAST(GETDATE() AS DATE))
+	BEGIN
+		RETURN -1;
+	END
+
+	IF EXISTS (SELECT 1 FROM dbo.Users WHERE username = @username OR email = @email)
+	BEGIN
+		RETURN -2;
+	END
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		INSERT INTO dbo.Users (first_name, middle_name, last_name, username, password, email, dob, account_status)
+		VALUES (@first_name, @middle_name, @last_name, @username, @password, @email, @dob, 'Active');
+
+		DECLARE @new_user_id INT = SCOPE_IDENTITY();
+
+		INSERT INTO dbo.User_Phone (user_id, phone)
+		VALUES (@new_user_id, @phone);
+
+		INSERT INTO dbo.Customer (customer_id, wallet_balance)
+		VALUES (@new_user_id, 0);
+
+		COMMIT TRANSACTION;
+		RETURN 0;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE PROCEDURE dbo.Partner_Register
+	@first_name VARCHAR(30),
+	@middle_name VARCHAR(30),
+	@last_name VARCHAR(30),
+	@username VARCHAR(30),
+	@password VARCHAR(30),
+	@email VARCHAR(100),
+	@phone CHAR(11),
+	@dob DATE
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @first_name IS NULL OR LTRIM(RTRIM(@first_name)) = ''
+	   OR @last_name IS NULL OR LTRIM(RTRIM(@last_name)) = ''
+	   OR @username IS NULL OR LTRIM(RTRIM(@username)) = ''
+	   OR @password IS NULL OR LTRIM(RTRIM(@password)) = ''
+	   OR @email IS NULL OR LTRIM(RTRIM(@email)) = ''
+	   OR @phone IS NULL OR LEN(@phone) <> 11 OR @phone LIKE '%[^0-9]%'
+	   OR (@dob IS NOT NULL AND @dob > CAST(GETDATE() AS DATE))
+	BEGIN
+		RETURN -1;
+	END
+
+	IF EXISTS (SELECT 1 FROM dbo.Users WHERE username = @username OR email = @email)
+	BEGIN
+		RETURN -2;
+	END
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		INSERT INTO dbo.Users (first_name, middle_name, last_name, username, password, email, dob, account_status)
+		VALUES (@first_name, @middle_name, @last_name, @username, @password, @email, @dob, 'Active');
+
+		DECLARE @new_user_id INT = SCOPE_IDENTITY();
+
+		INSERT INTO dbo.User_Phone (user_id, phone)
+		VALUES (@new_user_id, @phone);
+
+		INSERT INTO dbo.Partner (partner_id)
+		VALUES (@new_user_id);
+
+		COMMIT TRANSACTION;
+		RETURN 0;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE PROCEDURE dbo.Rider_Register
+	@first_name VARCHAR(30),
+	@middle_name VARCHAR(30),
+	@last_name VARCHAR(30),
+	@username VARCHAR(30),
+	@password VARCHAR(30),
+	@email VARCHAR(100),
+	@phone CHAR(11),
+	@dob DATE,
+	@vehicle_type VARCHAR(30),
+	@plate_no VARCHAR(15),
+	@license_no VARCHAR(20),
+	@zone_id INT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @first_name IS NULL OR LTRIM(RTRIM(@first_name)) = ''
+	   OR @last_name IS NULL OR LTRIM(RTRIM(@last_name)) = ''
+	   OR @username IS NULL OR LTRIM(RTRIM(@username)) = ''
+	   OR @password IS NULL OR LTRIM(RTRIM(@password)) = ''
+	   OR @email IS NULL OR LTRIM(RTRIM(@email)) = ''
+	   OR @phone IS NULL OR LEN(@phone) <> 11 OR @phone LIKE '%[^0-9]%'
+	   OR @vehicle_type IS NULL OR LTRIM(RTRIM(@vehicle_type)) = ''
+	   OR @plate_no IS NULL OR LTRIM(RTRIM(@plate_no)) = ''
+	   OR @license_no IS NULL OR LTRIM(RTRIM(@license_no)) = ''
+	   OR @zone_id IS NULL
+	   OR NOT EXISTS (SELECT 1 FROM dbo.Zone WHERE zone_id = @zone_id)
+	   OR (@dob IS NOT NULL AND @dob > CAST(GETDATE() AS DATE))
+	BEGIN
+		RETURN -1;
+	END
+
+	IF EXISTS (SELECT 1 FROM dbo.Users WHERE username = @username OR email = @email)
+	   OR EXISTS (SELECT 1 FROM dbo.Rider WHERE plate_no = @plate_no OR license_no = @license_no)
+	BEGIN
+		RETURN -2;
+	END
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		INSERT INTO dbo.Users (first_name, middle_name, last_name, username, password, email, dob, account_status)
+		VALUES (@first_name, @middle_name, @last_name, @username, @password, @email, @dob, 'Active');
+
+		DECLARE @new_user_id INT = SCOPE_IDENTITY();
+
+		INSERT INTO dbo.User_Phone (user_id, phone)
+		VALUES (@new_user_id, @phone);
+
+		INSERT INTO dbo.Rider (rider_id, vehicle_type, plate_no, license_no, is_available, zone_id)
+		VALUES (@new_user_id, @vehicle_type, @plate_no, @license_no, 1, @zone_id);
+
+		COMMIT TRANSACTION;
+		RETURN 0;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE FUNCTION dbo.CustomerLoginValidation
+(
+	@username VARCHAR(30),
+	@password VARCHAR(30)
+)
+RETURNS BIT
+AS
+BEGIN
+	IF @username IS NULL OR @password IS NULL
+		RETURN 0;
+
+	IF EXISTS (
+		SELECT 1
+		FROM dbo.Users u
+		INNER JOIN dbo.Customer c ON u.user_id = c.customer_id
+		WHERE u.username = @username
+		  AND u.password = @password
+		  AND u.account_status = 'Active'
+	)
+		RETURN 1;
+
+	RETURN 0;
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE FUNCTION dbo.PartnerLoginValidation
+(
+	@username VARCHAR(30),
+	@password VARCHAR(30)
+)
+RETURNS BIT
+AS
+BEGIN
+	IF @username IS NULL OR @password IS NULL
+		RETURN 0;
+
+	IF EXISTS (
+		SELECT 1
+		FROM dbo.Users u
+		INNER JOIN dbo.Partner p ON u.user_id = p.partner_id
+		WHERE u.username = @username
+		  AND u.password = @password
+		  AND u.account_status = 'Active'
+	)
+		RETURN 1;
+
+	RETURN 0;
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE FUNCTION dbo.RiderLoginValidation
+(
+	@username VARCHAR(30),
+	@password VARCHAR(30)
+)
+RETURNS BIT
+AS
+BEGIN
+	IF @username IS NULL OR @password IS NULL
+		RETURN 0;
+
+	IF EXISTS (
+		SELECT 1
+		FROM dbo.Users u
+		INNER JOIN dbo.Rider r ON u.user_id = r.rider_id
+		WHERE u.username = @username
+		  AND u.password = @password
+		  AND u.account_status = 'Active'
+	)
+		RETURN 1;
+
+	RETURN 0;
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE FUNCTION dbo.AdminLoginValidation
+(
+	@username VARCHAR(30),
+	@password VARCHAR(30)
+)
+RETURNS BIT
+AS
+BEGIN
+	IF @username IS NULL OR @password IS NULL
+		RETURN 0;
+
+	IF EXISTS (
+		SELECT 1
+		FROM dbo.Users u
+		INNER JOIN dbo.Admin a ON u.user_id = a.admin_id
+		WHERE u.username = @username
+		  AND u.password = @password
+		  AND u.account_status = 'Active'
+	)
+		RETURN 1;
+
+	RETURN 0;
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE PROCEDURE dbo.Change_Password
+	@user_id INT,
+	@old_password VARCHAR(30),
+	@new_password VARCHAR(30),
+	@new_password_repeat VARCHAR(30),
+	@success BIT OUTPUT
+AS
+BEGIN
+	SET NOCOUNT ON;
+	SET @success = 0;
+
+	IF @user_id IS NULL
+	   OR @old_password IS NULL
+	   OR @new_password IS NULL OR LTRIM(RTRIM(@new_password)) = ''
+	   OR @new_password_repeat IS NULL
+	   OR @new_password <> @new_password_repeat
+	BEGIN
+		RETURN -1;
+	END
+
+	IF NOT EXISTS (
+		SELECT 1
+		FROM dbo.Users
+		WHERE user_id = @user_id
+		  AND password = @old_password
+	)
+	BEGIN
+		RETURN -1;
+	END
+
+	UPDATE dbo.Users
+	SET password = @new_password
+	WHERE user_id = @user_id;
+
+	SET @success = 1;
+	RETURN 0;
+END
+GO
+
+-- ============================================================================
+-- Section 4.4: What i should be able to do as an Admin
+-- ============================================================================
+
+-- Mohamed Amr (64-24301)
+CREATE PROCEDURE dbo.Create_Admin
+	@first_name VARCHAR(30),
+	@middle_name VARCHAR(30),
+	@last_name VARCHAR(30),
+	@username VARCHAR(30),
+	@password VARCHAR(30),
+	@email VARCHAR(100),
+	@phone CHAR(11),
+	@dob DATE,
+	@role VARCHAR(20),
+	@zone_id INT,
+	@super_admin_id INT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @super_admin_id IS NULL
+	   OR NOT EXISTS (
+		   SELECT 1
+		   FROM dbo.Admin a
+		   INNER JOIN dbo.Users u ON u.user_id = a.admin_id
+		   WHERE a.admin_id = @super_admin_id
+		     AND a.role = 'Super Admin'
+		     AND u.account_status = 'Active'
+	   )
+	BEGIN
+		RETURN -3;
+	END
+
+	DECLARE @effective_role VARCHAR(20) = ISNULL(@role, 'Super Admin');
+
+	IF @first_name IS NULL OR LTRIM(RTRIM(@first_name)) = ''
+	   OR @last_name IS NULL OR LTRIM(RTRIM(@last_name)) = ''
+	   OR @username IS NULL OR LTRIM(RTRIM(@username)) = ''
+	   OR @password IS NULL OR LTRIM(RTRIM(@password)) = ''
+	   OR @email IS NULL OR LTRIM(RTRIM(@email)) = ''
+	   OR @phone IS NULL OR LEN(@phone) <> 11 OR @phone LIKE '%[^0-9]%'
+	   OR (@dob IS NOT NULL AND @dob > CAST(GETDATE() AS DATE))
+	   OR @effective_role NOT IN ('Super Admin', 'Zone Admin')
+	   OR (@effective_role = 'Super Admin' AND @zone_id IS NOT NULL)
+	   OR (@effective_role = 'Zone Admin' AND (@zone_id IS NULL OR NOT EXISTS (SELECT 1 FROM dbo.Zone WHERE zone_id = @zone_id)))
+	BEGIN
+		RETURN -1;
+	END
+
+	IF EXISTS (SELECT 1 FROM dbo.Users WHERE username = @username OR email = @email)
+	BEGIN
+		RETURN -2;
+	END
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		INSERT INTO dbo.Users (first_name, middle_name, last_name, username, password, email, dob, account_status)
+		VALUES (@first_name, @middle_name, @last_name, @username, @password, @email, @dob, 'Active');
+
+		DECLARE @new_user_id INT = SCOPE_IDENTITY();
+
+		INSERT INTO dbo.User_Phone (user_id, phone)
+		VALUES (@new_user_id, @phone);
+
+		INSERT INTO dbo.Admin (admin_id, role, zone_id)
+		VALUES (@new_user_id, @effective_role, @zone_id);
+
+		COMMIT TRANSACTION;
+		RETURN 0;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE PROCEDURE dbo.Approve_Business
+	@business_id INT,
+	@admin_id INT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @business_id IS NULL OR @admin_id IS NULL
+		RETURN -1;
+
+	DECLARE @b_status VARCHAR(20), @b_zone INT;
+	SELECT @b_status = status, @b_zone = zone_id
+	FROM dbo.Business
+	WHERE business_id = @business_id;
+
+	IF @b_status IS NULL
+		RETURN -1;
+
+	DECLARE @a_role VARCHAR(20), @a_zone INT;
+	SELECT @a_role = a.role, @a_zone = a.zone_id
+	FROM dbo.Admin a
+	INNER JOIN dbo.Users u ON u.user_id = a.admin_id
+	WHERE a.admin_id = @admin_id
+	  AND u.account_status = 'Active';
+
+	IF @a_role IS NULL
+		RETURN -3;
+
+	IF @a_role = 'Zone Admin' AND (@a_zone IS NULL OR @a_zone <> @b_zone)
+		RETURN -3;
+
+	IF @b_status <> 'Pending'
+		RETURN -4;
+
+	UPDATE dbo.Business
+	SET status = 'Active'
+	WHERE business_id = @business_id;
+
+	RETURN 0;
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE PROCEDURE dbo.Reject_Business
+	@business_id INT,
+	@admin_id INT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @business_id IS NULL OR @admin_id IS NULL
+		RETURN -1;
+
+	DECLARE @b_status VARCHAR(20), @b_zone INT;
+	SELECT @b_status = status, @b_zone = zone_id
+	FROM dbo.Business
+	WHERE business_id = @business_id;
+
+	IF @b_status IS NULL
+		RETURN -1;
+
+	DECLARE @a_role VARCHAR(20), @a_zone INT;
+	SELECT @a_role = a.role, @a_zone = a.zone_id
+	FROM dbo.Admin a
+	INNER JOIN dbo.Users u ON u.user_id = a.admin_id
+	WHERE a.admin_id = @admin_id
+	  AND u.account_status = 'Active';
+
+	IF @a_role IS NULL
+		RETURN -3;
+
+	IF @a_role = 'Zone Admin' AND (@a_zone IS NULL OR @a_zone <> @b_zone)
+		RETURN -3;
+
+	IF @b_status <> 'Pending'
+		RETURN -4;
+
+	UPDATE dbo.Business
+	SET status = 'Rejected'
+	WHERE business_id = @business_id;
+
+	RETURN 0;
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE PROCEDURE dbo.Assign_Admin_Zone
+	@admin_id INT,
+	@zone_id INT,
+	@super_admin_id INT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @super_admin_id IS NULL
+	   OR NOT EXISTS (
+		   SELECT 1
+		   FROM dbo.Admin a
+		   INNER JOIN dbo.Users u ON u.user_id = a.admin_id
+		   WHERE a.admin_id = @super_admin_id
+		     AND a.role = 'Super Admin'
+		     AND u.account_status = 'Active'
+	   )
+	BEGIN
+		RETURN -3;
+	END
+
+	IF @admin_id IS NULL OR @zone_id IS NULL
+	   OR NOT EXISTS (SELECT 1 FROM dbo.Zone WHERE zone_id = @zone_id)
+	   OR NOT EXISTS (SELECT 1 FROM dbo.Admin WHERE admin_id = @admin_id AND role = 'Zone Admin')
+	BEGIN
+		RETURN -1;
+	END
+
+	UPDATE dbo.Admin
+	SET zone_id = @zone_id
+	WHERE admin_id = @admin_id;
+
+	RETURN 0;
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE PROCEDURE dbo.Issue_Voucher
+	@customer_id INT,
+	@promo_code VARCHAR(30),
+	@is_percentage BIT,
+	@amount DECIMAL(10, 2),
+	@expiry_date DATE,
+	@admin_id INT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @admin_id IS NULL
+	   OR NOT EXISTS (
+		   SELECT 1
+		   FROM dbo.Admin a
+		   INNER JOIN dbo.Users u ON u.user_id = a.admin_id
+		   WHERE a.admin_id = @admin_id
+		     AND u.account_status = 'Active'
+	   )
+	BEGIN
+		RETURN -3;
+	END
+
+	IF @customer_id IS NULL
+	   OR NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
+	BEGIN
+		RETURN -1;
+	END
+
+	IF EXISTS (
+		SELECT 1
+		FROM dbo.Users
+		WHERE user_id = @customer_id
+		  AND account_status = 'Blacklisted'
+	)
+	BEGIN
+		RETURN -3;
+	END
+
+	IF @promo_code IS NULL OR LTRIM(RTRIM(@promo_code)) = ''
+	   OR @is_percentage IS NULL
+	   OR @amount IS NULL OR @amount <= 0
+	   OR (@is_percentage = 1 AND (@amount < 1 OR @amount > 100))
+	   OR @expiry_date IS NULL OR @expiry_date < CAST(GETDATE() AS DATE)
+	BEGIN
+		RETURN -1;
+	END
+
+	IF EXISTS (SELECT 1 FROM dbo.Voucher WHERE promo_code = @promo_code)
+	BEGIN
+		RETURN -2;
+	END
+
+	INSERT INTO dbo.Voucher (promo_code, is_percentage, amount, expiry_date, status, customer_id)
+	VALUES (@promo_code, @is_percentage, @amount, @expiry_date, 'Unused', @customer_id);
+
+	RETURN 0;
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE PROCEDURE dbo.Blacklist_Customer
+	@customer_id INT,
+	@admin_id INT,
+	@reason VARCHAR(255)
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @customer_id IS NULL OR @admin_id IS NULL
+	   OR @reason IS NULL OR LTRIM(RTRIM(@reason)) = ''
+	   OR NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
+	BEGIN
+		RETURN -1;
+	END
+
+	DECLARE @a_role VARCHAR(20), @a_zone INT;
+	SELECT @a_role = a.role, @a_zone = a.zone_id
+	FROM dbo.Admin a
+	INNER JOIN dbo.Users u ON u.user_id = a.admin_id
+	WHERE a.admin_id = @admin_id
+	  AND u.account_status = 'Active';
+
+	IF @a_role IS NULL
+		RETURN -3;
+
+	DECLARE @c_status VARCHAR(20);
+	SELECT @c_status = account_status
+	FROM dbo.Users
+	WHERE user_id = @customer_id;
+
+	IF @c_status = 'Blacklisted'
+	   OR EXISTS (SELECT 1 FROM dbo.Blacklist WHERE customer_id = @customer_id)
+	BEGIN
+		RETURN -4;
+	END
+
+	IF @a_role = 'Zone Admin'
+	   AND NOT EXISTS (
+		   SELECT 1
+		   FROM dbo.Address
+		   WHERE customer_id = @customer_id
+		     AND zone_id = @a_zone
+	   )
+	BEGIN
+		RETURN -3;
+	END
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		UPDATE dbo.Users
+		SET account_status = 'Blacklisted'
+		WHERE user_id = @customer_id;
+
+		INSERT INTO dbo.Blacklist (customer_id, admin_id, reason)
+		VALUES (@customer_id, @admin_id, @reason);
+
+		DECLARE @CancellableOrders TABLE (
+			order_id INT PRIMARY KEY,
+			voucher_id INT
+		);
+
+		INSERT INTO @CancellableOrders (order_id, voucher_id)
+		SELECT o.order_id, o.voucher_id
+		FROM dbo.Orders o
+		INNER JOIN dbo.Cart c ON c.cart_id = o.cart_id
+		WHERE c.customer_id = @customer_id
+		  AND o.status <> 'Cancelled'
+		  AND NOT EXISTS (
+			  SELECT 1
+			  FROM dbo.SubOrder s
+			  WHERE s.order_id = o.order_id
+			    AND s.status IN ('Picked Up', 'Delivered')
+		  );
+
+		UPDATE s
+		SET s.status = 'Cancelled'
+		FROM dbo.SubOrder s
+		INNER JOIN @CancellableOrders co ON co.order_id = s.order_id
+		WHERE s.status IN ('Placed', 'Assigned');
+
+		UPDATE o
+		SET o.status = 'Cancelled',
+		    o.voucher_id = NULL
+		FROM dbo.Orders o
+		INNER JOIN @CancellableOrders co ON co.order_id = o.order_id;
+
+		UPDATE v
+		SET v.status = 'Unused'
+		FROM dbo.Voucher v
+		INNER JOIN @CancellableOrders co ON co.voucher_id = v.voucher_id
+		WHERE co.voucher_id IS NOT NULL;
+
+		DECLARE @wallet_refund DECIMAL(10, 2) = 0;
+		SELECT @wallet_refund = ISNULL(SUM(p.amount - p.refunded_amount), 0)
+		FROM dbo.Payment p
+		INNER JOIN @CancellableOrders co ON co.order_id = p.order_id
+		WHERE p.method <> 'Cash'
+		  AND p.amount > p.refunded_amount;
+
+		UPDATE p
+		SET p.refunded_amount = p.amount
+		FROM dbo.Payment p
+		INNER JOIN @CancellableOrders co ON co.order_id = p.order_id
+		WHERE p.amount > p.refunded_amount;
+
+		IF @wallet_refund > 0
+		BEGIN
+			UPDATE dbo.Customer
+			SET wallet_balance = wallet_balance + @wallet_refund
+			WHERE customer_id = @customer_id;
+		END
+
+		DELETE FROM dbo.Voucher
+		WHERE customer_id = @customer_id
+		  AND status = 'Unused';
+
+		COMMIT TRANSACTION;
+		RETURN 0;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+END
+GO
+
+-- Mohamed Amr (64-24301)
+CREATE PROCEDURE dbo.Lift_Customer_Blacklist
+	@customer_id INT,
+	@admin_id INT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @customer_id IS NULL OR @admin_id IS NULL
+	   OR NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
+	BEGIN
+		RETURN -1;
+	END
+
+	IF NOT EXISTS (
+		SELECT 1
+		FROM dbo.Admin a
+		INNER JOIN dbo.Users u ON u.user_id = a.admin_id
+		WHERE a.admin_id = @admin_id
+		  AND u.account_status = 'Active'
+	)
+	BEGIN
+		RETURN -3;
+	END
+
+	DECLARE @c_status VARCHAR(20);
+	SELECT @c_status = account_status
+	FROM dbo.Users
+	WHERE user_id = @customer_id;
+
+	IF @c_status <> 'Blacklisted'
+	   OR NOT EXISTS (SELECT 1 FROM dbo.Blacklist WHERE customer_id = @customer_id)
+	BEGIN
+		RETURN -4;
+	END
+
+	IF NOT EXISTS (
+		SELECT 1
+		FROM dbo.Blacklist
+		WHERE customer_id = @customer_id
+		  AND admin_id = @admin_id
+	)
+	BEGIN
+		RETURN -3;
+	END
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		DELETE FROM dbo.Blacklist
+		WHERE customer_id = @customer_id;
+
+		UPDATE dbo.Users
+		SET account_status = 'Active'
+		WHERE user_id = @customer_id;
+
+		COMMIT TRANSACTION;
+		RETURN 0;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+END
+GO
