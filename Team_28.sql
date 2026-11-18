@@ -308,6 +308,19 @@ GO
 
 
 -- Section 4.2: Basic Data Retrieval (Views)
+
+-- Farida Tarek (64-29168)
+CREATE VIEW dbo.BusinessRatingsSummary AS
+	SELECT b.business_id,
+		b.name AS business_name,
+		CAST(AVG(CAST(f.rating AS decimal(10,2))) AS decimal(10,2)) AS avg_rating,
+		COUNT(f.feedback_id) AS ratings_count
+	FROM dbo.Business b
+	LEFT JOIN dbo.SubOrder s ON s.business_id = b.business_id
+	LEFT JOIN dbo.Feedback f ON f.suborder_id = s.suborder_id
+	GROUP BY b.business_id, b.name;
+GO
+	
 -- Mohamed Amr (64-24301)
 CREATE VIEW dbo.ActiveVouchers AS
 	SELECT
@@ -320,6 +333,36 @@ CREATE VIEW dbo.ActiveVouchers AS
 	FROM dbo.Voucher
 	WHERE status = 'Unused'
 	  AND expiry_date >= CAST(GETDATE() AS DATE);
+GO
+
+-- Farida Tarek (64-29168)
+CREATE VIEW dbo.RiderPerformanceSummary AS
+	SELECT r.rider_id,
+		CAST(u.first_name + ' ' + u.last_name AS varchar(101)) AS rider_name,
+		z.zone_name,
+		COUNT(CASE WHEN s.status = 'Delivered' THEN 1 END) AS completed_deliveries,
+		CAST(AVG(CAST(d.rider_rating AS decimal(10,2))) AS decimal(10,2)) AS avg_rating
+	FROM dbo.Rider r
+	JOIN dbo.Users u ON u.user_id = r.rider_id
+	JOIN dbo.Zone z ON z.zone_id = r.zone_id
+	LEFT JOIN dbo.Delivery d ON d.rider_id = r.rider_id
+	LEFT JOIN dbo.SubOrder s ON s.suborder_id = d.suborder_id
+	GROUP BY r.rider_id, u.first_name, u.last_name, z.zone_name;
+GO
+
+-- Farida Tarek (64-29168)
+CREATE VIEW dbo.ZoneDeliveryPerformance AS
+	SELECT z.zone_id,
+		z.zone_name,
+		COUNT(d.delivery_id) AS delivery_count,
+		CAST(AVG(CAST(d.tracking_time AS decimal(10,2))) AS decimal(10,2)) AS avg_tracking_time
+	FROM dbo.Zone z
+	LEFT JOIN dbo.Orders o ON o.zone_id = z.zone_id
+	LEFT JOIN dbo.SubOrder s
+		ON s.order_id = o.order_id
+		AND s.status = 'Delivered'
+	LEFT JOIN dbo.Delivery d ON d.suborder_id = s.suborder_id
+	GROUP BY z.zone_id, z.zone_name;
 GO
 
 -- ============================================================================
@@ -1103,4 +1146,503 @@ BEGIN
 		RETURN -1;
 	END CATCH
 END
+GO
+
+-- Farida Tarek (64-29168)
+CREATE FUNCTION dbo.TopRiders (@from_date date, @to_date date)
+RETURNS TABLE
+AS
+RETURN 
+(
+    SELECT TOP 5
+		1 + COUNT(b.rider_id) AS rider_rank,
+		a.rider_id,
+		a.rider_name,
+		a.cnt AS completed_delivery_count
+    FROM (SELECT r.rider_id,
+			CAST(u.first_name + ' ' + u.last_name AS varchar(101)) AS rider_name,
+			COUNT(*) AS cnt
+          FROM dbo.Rider r
+          JOIN dbo.Users u ON u.user_id = r.rider_id
+          JOIN dbo.Delivery d ON d.rider_id = r.rider_id
+          JOIN dbo.SubOrder s ON s.suborder_id = d.suborder_id
+          WHERE s.status = 'Delivered'
+			AND CAST(d.delivered_at AS date) BETWEEN @from_date AND @to_date
+			AND @from_date <= @to_date
+          GROUP BY r.rider_id, u.first_name, u.last_name) a
+    LEFT JOIN (SELECT d.rider_id, COUNT(*) AS cnt
+               FROM dbo.Delivery d
+               JOIN dbo.SubOrder s ON s.suborder_id = d.suborder_id
+               WHERE s.status = 'Delivered'
+                 AND CAST(d.delivered_at AS date) BETWEEN @from_date AND @to_date
+               GROUP BY d.rider_id) b
+           ON b.cnt > a.cnt
+           OR (b.cnt = a.cnt AND b.rider_id < a.rider_id)
+    GROUP BY a.rider_id, a.rider_name, a.cnt
+    ORDER BY a.cnt DESC, a.rider_id
+);
+GO
+
+-- ============================================================================
+-- Section 4.5: As a Partner, I should be able to:
+-- ============================================================================
+
+-- Farida Tarek (64-29168)
+CREATE FUNCTION dbo.BusinessFeedbackOverview (@business_id int)
+RETURNS TABLE
+AS
+RETURN 
+(
+    SELECT CAST(AVG(CAST(f.rating AS decimal(10,2))) AS decimal(10,2)) AS avg_rating,
+		COUNT(f.feedback_id) AS number_of_feedbacks,
+		COUNT(CASE WHEN f.rating = 5 THEN 1 END) AS five_star,
+		COUNT(CASE WHEN f.rating = 4 THEN 1 END) AS four_star,
+		COUNT(CASE WHEN f.rating = 3 THEN 1 END) AS three_star,
+		COUNT(CASE WHEN f.rating = 2 THEN 1 END) AS two_star,
+		COUNT(CASE WHEN f.rating = 1 THEN 1 END) AS one_star
+    FROM dbo.Business b
+    LEFT JOIN dbo.SubOrder s ON s.business_id = b.business_id
+    LEFT JOIN dbo.Feedback f ON f.suborder_id = s.suborder_id
+    WHERE b.business_id = @business_id
+    GROUP BY b.business_id
+);
+GO
+
+-- ============================================================================
+-- Section 4.6: As a Customer, I should be able to:
+-- ============================================================================
+
+-- Farida Tarek (64-29168)
+CREATE PROCEDURE dbo.Submit_Feedback
+    @suborder_id int,
+    @headline varchar(100),
+    @description varchar(500),
+    @rating int
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @status varchar(20);
+
+    IF @suborder_id IS NULL
+       OR @rating IS NULL OR @rating NOT BETWEEN 1 AND 5
+       OR @headline IS NULL OR LTRIM(RTRIM(@headline)) = ''
+        RETURN -1;
+
+    SELECT @status = status
+    FROM dbo.SubOrder
+    WHERE suborder_id = @suborder_id;
+
+    IF @status IS NULL
+        RETURN -1;
+
+    IF @status <> 'Delivered'
+		RETURN -4;
+
+    IF EXISTS (SELECT 1 FROM dbo.Feedback WHERE suborder_id = @suborder_id)
+        RETURN -2;
+
+    INSERT INTO dbo.Feedback (headline, description, rating, suborder_id)
+    VALUES (@headline, @description, @rating, @suborder_id);
+
+    RETURN 0;
+END;
+GO
+
+-- Farida Tarek (64-29168)
+CREATE PROCEDURE dbo.Rate_Rider
+    @suborder_id int,
+    @rider_rating int
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @status varchar(20);
+
+    IF @suborder_id IS NULL
+       OR @rider_rating IS NULL OR @rider_rating NOT BETWEEN 1 AND 5
+        RETURN -1;
+
+    SELECT @status = status
+    FROM dbo.SubOrder
+    WHERE suborder_id = @suborder_id;
+
+    IF @status IS NULL
+        RETURN -1;
+
+    IF @status <> 'Delivered'
+        RETURN -4;
+
+    IF EXISTS (SELECT 1
+               FROM dbo.Delivery
+               WHERE suborder_id = @suborder_id
+                 AND rider_rating IS NOT NULL)
+        RETURN -2;
+
+    UPDATE dbo.Delivery
+    SET rider_rating = @rider_rating
+    WHERE suborder_id = @suborder_id;
+
+    RETURN 0;
+END;
+GO
+
+-- Farida Tarek (64-29168)
+CREATE FUNCTION dbo.Recommended_Products (@customer_id int)
+RETURNS TABLE
+AS
+RETURN 
+(
+    SELECT TOP 10
+           p.product_id,
+           p.name AS product_name,
+           b.name AS business_name,
+           p.category,
+           CAST(p.price - p.discount_amount AS decimal(10,2)) AS final_price
+    FROM dbo.Address a
+    JOIN dbo.Business b ON b.zone_id = a.zone_id
+                       AND b.status = 'Active'
+    JOIN dbo.Product p ON p.business_id = b.business_id
+                      AND p.is_available = 1
+    JOIN (SELECT p2.category, SUM(ci.quantity) AS times_ordered
+          FROM dbo.Cart c
+          JOIN dbo.Orders o ON o.cart_id = c.cart_id
+          JOIN dbo.CartItem ci ON ci.cart_id = c.cart_id
+          JOIN dbo.Product p2 ON p2.product_id = ci.product_id
+          WHERE c.customer_id = @customer_id
+          GROUP BY p2.category) oc ON oc.category = p.category
+    WHERE a.customer_id = @customer_id
+      AND a.is_active = 1
+      AND NOT EXISTS (SELECT 1
+                      FROM dbo.Cart c3
+                      JOIN dbo.Orders o3 ON o3.cart_id = c3.cart_id
+                      JOIN dbo.CartItem ci3 ON ci3.cart_id = c3.cart_id
+                      WHERE c3.customer_id = @customer_id
+                        AND ci3.product_id = p.product_id)
+    ORDER BY oc.times_ordered DESC, p.product_id
+);
+GO
+
+-- ============================================================================
+-- Section 4.7: As a Rider, I should be able to:
+-- ============================================================================
+
+-- Farida Tarek (64-29168)
+CREATE PROCEDURE dbo.Set_Rider_Availability 
+	@rider_id int, @is_available bit
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF @is_available IS NULL OR @rider_id IS NULL
+        RETURN -1;
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.Rider WHERE rider_id = @rider_id)
+        RETURN -3;
+
+    UPDATE dbo.Rider
+    SET is_available = @is_available
+    WHERE rider_id = @rider_id;
+
+    RETURN 0;
+END;
+GO
+
+-- Farida Tarek (64-29168)
+CREATE FUNCTION dbo.My_Active_Deliveries (@rider_id int)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+		d.delivery_id,
+		o.order_id,
+		s.suborder_id,
+		b.name AS business_name,
+		CAST(u.first_name + ' ' + u.last_name AS varchar(101)) AS customer_name,
+		a.description AS address_description,
+		z.zone_name,
+		s.status,
+		d.assigned_at
+    FROM dbo.Delivery d
+    JOIN dbo.SubOrder s ON s.suborder_id = d.suborder_id
+    JOIN dbo.Orders o ON o.order_id = s.order_id
+    JOIN dbo.Business b ON b.business_id = s.business_id
+    JOIN dbo.Cart c ON c.cart_id = o.cart_id
+    JOIN dbo.Users u ON u.user_id = c.customer_id
+    JOIN dbo.Address a ON a.address_id = c.address_id
+    JOIN dbo.Zone z ON z.zone_id = o.zone_id
+    WHERE d.rider_id = @rider_id
+      AND s.status IN ('Assigned', 'Picked Up')
+);
+GO
+
+-- Farida Tarek (64-29168)
+CREATE PROCEDURE dbo.Mark_Picked_Up
+    @delivery_id int
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @suborder_id int, @order_id int, @status varchar(20);
+    DECLARE @total int, @cancelled int, @delivered int, @moving int;
+    DECLARE @new_status varchar(20);
+
+    IF @delivery_id IS NULL
+        RETURN -1;
+
+    SELECT @suborder_id = s.suborder_id,
+           @order_id = s.order_id,
+           @status = s.status
+    FROM dbo.Delivery d
+    JOIN dbo.SubOrder s ON s.suborder_id = d.suborder_id
+    WHERE d.delivery_id = @delivery_id;
+
+    IF @suborder_id IS NULL
+        RETURN -1;
+
+    IF @status <> 'Assigned'
+        RETURN -4;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        UPDATE dbo.SubOrder
+        SET status = 'Picked Up'
+        WHERE suborder_id = @suborder_id;
+
+        UPDATE dbo.Delivery
+        SET picked_up_at = GETDATE()
+        WHERE delivery_id = @delivery_id;
+
+        SELECT @total = COUNT(*),
+               @cancelled = COUNT(CASE WHEN status = 'Cancelled' THEN 1 END),
+               @delivered = COUNT(CASE WHEN status = 'Delivered' THEN 1 END),
+               @moving = COUNT(CASE WHEN status IN ('Picked Up', 'Delivered') THEN 1 END)
+        FROM dbo.SubOrder
+        WHERE order_id = @order_id;
+
+        IF @cancelled = @total
+            SET @new_status = 'Cancelled';
+        ELSE IF @delivered = @total - @cancelled
+            SET @new_status = 'Delivered';
+        ELSE IF @moving > 0
+            SET @new_status = 'In Progress';
+        ELSE
+            SET @new_status = 'Placed';
+
+        UPDATE dbo.Orders
+        SET status = @new_status
+        WHERE order_id = @order_id;
+
+        COMMIT TRANSACTION;
+        RETURN 0;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        RETURN -1;
+    END CATCH
+END;
+GO
+
+-- Farida Tarek (64-29168)
+CREATE PROCEDURE dbo.Mark_Delivered
+    @delivery_id int
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @suborder_id int, @order_id int, @status varchar(20);
+    DECLARE @total int, @cancelled int, @delivered int, @moving int;
+    DECLARE @new_status varchar(20);
+    DECLARE @now datetime = GETDATE();
+
+    IF @delivery_id IS NULL
+        RETURN -1;
+
+    SELECT @suborder_id = s.suborder_id,
+           @order_id = s.order_id,
+           @status = s.status
+    FROM dbo.Delivery d
+    JOIN dbo.SubOrder s ON s.suborder_id = d.suborder_id
+    WHERE d.delivery_id = @delivery_id;
+
+    IF @suborder_id IS NULL
+        RETURN -1;
+
+    IF @status <> 'Picked Up'
+        RETURN -4;
+
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        UPDATE dbo.SubOrder
+        SET status = 'Delivered'
+        WHERE suborder_id = @suborder_id;
+
+        UPDATE dbo.Delivery
+        SET delivered_at = @now,
+            tracking_time = DATEDIFF(MINUTE, picked_up_at, @now)
+        WHERE delivery_id = @delivery_id;
+
+        SELECT @total = COUNT(*),
+               @cancelled = COUNT(CASE WHEN status = 'Cancelled' THEN 1 END),
+               @delivered = COUNT(CASE WHEN status = 'Delivered' THEN 1 END),
+               @moving = COUNT(CASE WHEN status IN ('Picked Up', 'Delivered') THEN 1 END)
+        FROM dbo.SubOrder
+        WHERE order_id = @order_id;
+
+        IF @cancelled = @total
+            SET @new_status = 'Cancelled';
+        ELSE IF @delivered = @total - @cancelled
+            SET @new_status = 'Delivered';
+        ELSE IF @moving > 0
+            SET @new_status = 'In Progress';
+        ELSE
+            SET @new_status = 'Placed';
+
+        UPDATE dbo.Orders
+        SET status = @new_status
+        WHERE order_id = @order_id;
+
+        COMMIT TRANSACTION;
+        RETURN 0;
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        RETURN -1;
+    END CATCH
+END;
+GO
+
+-- Farida Tarek (64-29168)
+CREATE FUNCTION dbo.My_Earnings
+(
+    @rider_id int,
+    @from_date date,
+    @to_date date
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT COUNT(s.suborder_id) AS completed_deliveries,
+           CAST(ISNULL(SUM(s.delivery_fee), 0) AS decimal(10,2)) AS total_delivery_fees,
+           CAST(ISNULL(SUM(s.delivery_fee), 0) * 0.8 AS decimal(10,2)) AS total_earnings
+    FROM dbo.Rider r
+    LEFT JOIN dbo.Delivery d
+           ON d.rider_id = r.rider_id
+          AND CAST(d.delivered_at AS date) BETWEEN @from_date AND @to_date
+    LEFT JOIN dbo.SubOrder s
+           ON s.suborder_id = d.suborder_id
+          AND s.status = 'Delivered'
+    WHERE r.rider_id = @rider_id
+      AND @from_date <= @to_date
+    GROUP BY r.rider_id
+);
+GO
+
+-- Farida Tarek (64-29168)
+CREATE FUNCTION dbo.My_Rating_Summary (@rider_id int)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT CAST(AVG(CAST(d.rider_rating AS decimal(10,2))) AS decimal(10,2)) AS avg_rating,
+           COUNT(d.rider_rating) AS ratings_count,
+           COUNT(CASE WHEN d.rider_rating = 5 THEN 1 END) AS five_star,
+           COUNT(CASE WHEN d.rider_rating = 4 THEN 1 END) AS four_star,
+           COUNT(CASE WHEN d.rider_rating = 3 THEN 1 END) AS three_star,
+           COUNT(CASE WHEN d.rider_rating = 2 THEN 1 END) AS two_star,
+           COUNT(CASE WHEN d.rider_rating = 1 THEN 1 END) AS one_star
+    FROM dbo.Rider r
+    LEFT JOIN dbo.Delivery d ON d.rider_id = r.rider_id
+    WHERE r.rider_id = @rider_id
+    GROUP BY r.rider_id
+);
+GO
+
+-- Farida Tarek (64-29168)
+CREATE FUNCTION dbo.My_Delivery_History
+(
+    @rider_id int,
+    @from_date date,
+    @to_date date
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT d.delivery_id,
+           s.order_id,
+           b.name AS business_name,
+           s.status,
+           d.assigned_at,
+           d.picked_up_at,
+           d.delivered_at,
+           d.tracking_time
+    FROM dbo.Delivery d
+    JOIN dbo.SubOrder s ON s.suborder_id = d.suborder_id
+    JOIN dbo.Business b ON b.business_id = s.business_id
+    WHERE d.rider_id = @rider_id
+      AND s.status IN ('Delivered', 'Cancelled')
+      AND CAST(d.assigned_at AS date) BETWEEN @from_date AND @to_date
+      AND @from_date <= @to_date
+);
+GO
+
+-- ============================================================================
+-- Section 4.8: System-Level Requirements
+-- ============================================================================
+
+-- Farida Tarek (64-29168)
+CREATE FUNCTION dbo.Reconcile_Order_Totals ()
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT o.order_id,
+           CAST(ISNULL(SUM(s.total_price + s.delivery_fee), 0) - o.discount_amount AS decimal(10,2)) AS expected_total,
+           o.total_amount AS order_total,
+           p.amount AS payment_amount
+    FROM dbo.Orders o
+    LEFT JOIN dbo.SubOrder s ON s.order_id = o.order_id
+    LEFT JOIN dbo.Payment p ON p.order_id = o.order_id
+    GROUP BY o.order_id, o.discount_amount, o.total_amount, p.amount
+    HAVING o.total_amount <> ISNULL(SUM(s.total_price + s.delivery_fee), 0) - o.discount_amount
+        OR p.amount IS NULL
+        OR p.amount <> o.total_amount
+);
+GO
+
+-- Farida Tarek (64-29168)
+CREATE FUNCTION dbo.Platform_Health_Snapshot ()
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        (SELECT COUNT(*)
+         FROM dbo.Business
+         WHERE status = 'Active') AS active_businesses,
+
+        (SELECT COUNT(*)
+         FROM dbo.Rider
+         WHERE is_available = 1) AS available_riders,
+
+        (SELECT COUNT(*)
+         FROM dbo.Orders
+         WHERE CAST(order_date AS date) = CAST(GETDATE() AS date)) AS orders_today,
+
+        (SELECT CAST(AVG(CAST(tracking_time AS decimal(10,2))) AS decimal(10,2))
+         FROM dbo.Delivery
+         WHERE CAST(delivered_at AS date) = CAST(GETDATE() AS date)) AS avg_delivery_time_today,
+
+        (SELECT COUNT(*)
+         FROM dbo.Feedback
+         WHERE rating <= 2
+           AND CAST(feedback_date AS date) = CAST(GETDATE() AS date)) AS low_ratings_today
+);
 GO
