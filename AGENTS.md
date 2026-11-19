@@ -72,7 +72,7 @@ The PDF says AI tools are prohibited. That line is outdated: the instructor allo
 - It writes `<file>_results.txt` next to the `.sql` file it was given.
 - 2026-11-19: 109 of 109 public tests pass.
 
-**Team private tests:** [tests/team_private_tests.sql](tests/team_private_tests.sql) is ours, not part of the course kit. It has 397 checks of edge cases the TAs' private tests may use, plus path tests, and reuses the course seed data. Run `Team_28.sql`, then `sqlcmd -S "(localdb)\MSSQLLocalDB" -i tests\team_private_tests.sql`. Both use `LocalDeliveryMarketplace_Team_28`, so to keep that database intact run renamed copies of both files, as for the grader. It prints only failures and a pass count. It ends by dropping the tables, procedures, functions and views to test 4.1, so run `Team_28.sql` again afterwards. A check marked "(our choice)" pins down one of the open return codes below. Update it if CMS decides otherwise. 2026-11-19: 397 of 397 pass.
+**Team private tests:** [tests/team_private_tests.sql](tests/team_private_tests.sql) is ours, not part of the course kit. It has 401 checks of edge cases the TAs' private tests may use, plus path tests, and reuses the course seed data. Run `Team_28.sql`, then `sqlcmd -S "(localdb)\MSSQLLocalDB" -i tests\team_private_tests.sql`. Both use `LocalDeliveryMarketplace_Team_28`, so to keep that database intact run renamed copies of both files, as for the grader. It prints only failures and a pass count. It ends by dropping the tables, procedures, functions and views to test 4.1, so run `Team_28.sql` again afterwards. A check marked "(our choice)" pins down one of the open return codes below. Update it if CMS decides otherwise. 2026-11-19: 401 of 401 pass.
 
 **Ad-hoc checks:** SQL Server LocalDB is installed: `sqlcmd -S "(localdb)\MSSQLLocalDB"`. The script drops and recreates `LocalDeliveryMarketplace_Team_28`. To test without clobbering someone's working database:
 1. Copy the script and replace the database name with a throwaway one, e.g. `sed 's/LocalDeliveryMarketplace_Team_28/Test_Team_28/g'`.
@@ -85,6 +85,7 @@ The PDF says AI tools are prohibited. That line is outdated: the instructor allo
 - Passwords are case-sensitive: the login functions and `Change_Password` compare with `COLLATE Latin1_General_CS_AS`. Trailing spaces are still ignored, as in any SQL Server `=`.
 - Tables use exactly the Appendix A definitions, so there are no `CHECK (... IN (...))` constraints. Procedures enforce the Section 2.3 lists (see Hard rules).
 - Cancelled orders stay in the tables, but queries leave them out. `Recommended_Products` ignores them both for "ordered categories" and for "products already ordered".
+- An ID of the wrong user type returns -3 in every procedure (team decision). A NULL ID is still -1. `Assign_Admin_Zone` returns -3 when its target isn't an admin at all, and -1 when the target is a Super Admin, as the public tests expect.
 
 ## Open questions (ask on CMS)
 
@@ -92,7 +93,6 @@ The PDF says AI tools are prohibited. That line is outdated: the instructor allo
   - `Checkout_Cart`: invalid voucher (another customer's, Used, expired or missing) → -1; a business closed now (BR-6) → -4; no available rider → -8, checked after the payment check (-7).
   - `Create_Cart`: customer without an active address → -1.
   - `Remove_From_Cart`: product not in the cart → -9.
-  - Customer and partner procedures given an ID of the wrong user type → -3.
   - `Add_To_Cart`, `Remove_From_Cart` and `Toggle_Favorite` don't check for Blacklisted customers, because BR-1 doesn't list those actions.
   - `Update_Business_Info`: a NULL phone adds no phone, and a NULL website clears the website.
 - Section 2.3 lists the actions as Add, Update, Remove, but the public tests call `Update_Delete_Customer_Address` with `'Update'` and `'Delete'`. It accepts `'Update'`, `'Delete'` and `'Remove'`.

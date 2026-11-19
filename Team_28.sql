@@ -1238,7 +1238,16 @@ BEGIN
 
 	IF @admin_id IS NULL OR @zone_id IS NULL
 	   OR NOT EXISTS (SELECT 1 FROM dbo.Zone WHERE zone_id = @zone_id)
-	   OR NOT EXISTS (SELECT 1 FROM dbo.Admin WHERE admin_id = @admin_id AND role = 'Zone Admin')
+	BEGIN
+		RETURN -1;
+	END
+
+	IF NOT EXISTS (SELECT 1 FROM dbo.Admin WHERE admin_id = @admin_id)
+	BEGIN
+		RETURN -3;
+	END
+
+	IF NOT EXISTS (SELECT 1 FROM dbo.Admin WHERE admin_id = @admin_id AND role = 'Zone Admin')
 	BEGIN
 		RETURN -1;
 	END
@@ -1276,9 +1285,13 @@ BEGIN
 	END
 
 	IF @customer_id IS NULL
-	   OR NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
 	BEGIN
 		RETURN -1;
+	END
+
+	IF NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
+	BEGIN
+		RETURN -3;
 	END
 
 	IF EXISTS (
@@ -1323,9 +1336,13 @@ BEGIN
 
 	IF @customer_id IS NULL OR @admin_id IS NULL
 	   OR @reason IS NULL OR @reason = ''
-	   OR NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
 	BEGIN
 		RETURN -1;
+	END
+
+	IF NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
+	BEGIN
+		RETURN -3;
 	END
 
 	DECLARE @a_role VARCHAR(20), @a_zone INT;
@@ -1478,9 +1495,13 @@ BEGIN
 	SET NOCOUNT ON;
 
 	IF @customer_id IS NULL OR @admin_id IS NULL
-	   OR NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
 	BEGIN
 		RETURN -1;
+	END
+
+	IF NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
+	BEGIN
+		RETURN -3;
 	END
 
 	IF NOT EXISTS (

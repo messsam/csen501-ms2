@@ -650,6 +650,14 @@ EXEC #T '4.4 setup: cancel order 8', N'dbo.Cancel_Order 8', 0;
 EXEC #V '4.4.l cancelled order left out', N'SELECT CONCAT(number_of_orders, ''/'', avg_order_total, ''/'', platform_commission) FROM dbo.ZoneOrderReport(1, ''2026-09-01'', ''2026-09-30'')', '4/172.50/58.00';
 GO
 
+-- An ID of the wrong user type is -3 everywhere (team decision, 2026-11-19).
+EXEC #Reset;
+EXEC #T '4.4.h target is a customer, not an admin', N'dbo.Assign_Admin_Zone 17, 1, 1', -3;
+EXEC #T '4.4.i voucher for a rider', N'dbo.Issue_Voucher 12, ''RIDER5'', 0, 5, ''2030-12-31'', 1', -3;
+EXEC #T '4.4.j blacklist a rider', N'dbo.Blacklist_Customer 12, 1, ''X''', -3;
+EXEC #T '4.4.k lift the blacklist of a partner', N'dbo.Lift_Customer_Blacklist 4, 1', -3;
+GO
+
 /* =============================== 4.5 Partner =============================== */
 EXEC #Reset;
 EXEC #T '4.5.a re-register a Rejected business as a restaurant', N'dbo.Register_Business 24, ''Nile Sweets 2'', NULL, ''www.nile.example'', 1, ''10:00'', ''23:00'', 20, ''02200000099'', ''Restaurant'', ''Lebanese'', ''Desserts'', NULL', 0;
