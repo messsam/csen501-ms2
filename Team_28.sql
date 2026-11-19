@@ -1355,17 +1355,6 @@ BEGIN
 	IF @a_role IS NULL
 		RETURN -3;
 
-	DECLARE @c_status VARCHAR(20);
-	SELECT @c_status = account_status
-	FROM dbo.Users
-	WHERE user_id = @customer_id;
-
-	IF @c_status = 'Blacklisted'
-	   OR EXISTS (SELECT 1 FROM dbo.Blacklist WHERE customer_id = @customer_id)
-	BEGIN
-		RETURN -4;
-	END
-
 	IF @a_role = 'Zone Admin'
 	   AND NOT EXISTS (
 		   SELECT 1
@@ -1375,6 +1364,17 @@ BEGIN
 	   )
 	BEGIN
 		RETURN -3;
+	END
+
+	DECLARE @c_status VARCHAR(20);
+	SELECT @c_status = account_status
+	FROM dbo.Users
+	WHERE user_id = @customer_id;
+
+	IF @c_status = 'Blacklisted'
+	   OR EXISTS (SELECT 1 FROM dbo.Blacklist WHERE customer_id = @customer_id)
+	BEGIN
+		RETURN -4;
 	END
 
 	UPDATE dbo.Users
@@ -1988,6 +1988,10 @@ CREATE PROCEDURE dbo.Update_Delete_Customer_Address(
 	)
 		RETURN -4;
 	IF @action <> 'Update' AND EXISTS (SELECT 1 FROM dbo.Cart WHERE address_id = @address_id)
+		RETURN -4;
+	-- BR-8: the customer must keep exactly one active address, so the active one can't be deleted.
+	-- They switch with Change_Active_Address first.
+	IF @action <> 'Update' AND EXISTS (SELECT 1 FROM dbo.Address WHERE address_id = @address_id AND is_active = 1)
 		RETURN -4;
 
 	IF @action = 'Update'

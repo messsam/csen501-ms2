@@ -636,6 +636,7 @@ EXEC #T '4.4.j cancels the Placed cash order, keeps the Used voucher', N'dbo.Bla
 EXEC #V '4.4.j order 7, refund, wallet, vouchers left', N'SELECT CONCAT((SELECT status FROM dbo.Orders WHERE order_id = 7), ''/'', (SELECT refunded_amount FROM dbo.Payment WHERE order_id = 7), ''/'', (SELECT wallet_balance FROM dbo.Customer WHERE customer_id = 18), ''/'', (SELECT STRING_AGG(CAST(voucher_id AS VARCHAR(10)), '','') FROM dbo.Voucher WHERE customer_id = 18))', 'Cancelled/100.00/50.00/1';
 EXEC #T '4.4.j NULL reason', N'dbo.Blacklist_Customer 19, 1, NULL', -1;
 EXEC #T '4.4.j a customer as admin', N'dbo.Blacklist_Customer 19, 17, ''R''', -3;
+EXEC #T '4.4.j already Blacklisted, Zone Admin of another zone: scope checked first', N'dbo.Blacklist_Customer 21, 3, ''R''', -3;
 EXEC #V '4.4.j totals still reconcile', N'SELECT COUNT(*) FROM dbo.Reconcile_Order_Totals()', '0';
 GO
 EXEC #Reset;
@@ -700,6 +701,7 @@ GO
 EXEC #Reset;
 EXEC #T '4.6.a second customer address', N'dbo.Add_Customer_Address 20, ''Heliopolis Villa'', 4', 0;
 EXEC #V '4.6.a only the new one is active', N'SELECT STRING_AGG(CAST(address_id AS VARCHAR(10)), '','') FROM dbo.Address WHERE customer_id = 20 AND is_active = 1', '13';
+EXEC #T '4.6.b delete the active address (our choice)', N'dbo.Update_Delete_Customer_Address 20, 13, NULL, NULL, ''Delete''', -4;
 EXEC #T '4.6.b delete an unused address, lower-case action', N'dbo.Update_Delete_Customer_Address 20, 9, NULL, NULL, ''delete''', 0;
 EXEC #T '4.6.b address of a Placed order', N'dbo.Update_Delete_Customer_Address 22, 8, ''X'', 1, ''Update''', -4;
 EXEC #T '4.6.b delete an address that has carts', N'dbo.Update_Delete_Customer_Address 20, 6, NULL, NULL, ''Delete''', -4;
