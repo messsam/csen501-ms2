@@ -8,7 +8,11 @@ GO
 USE LocalDeliveryMarketplace_Team_28;
 GO
 
--- Mohand Essam (64-29300)
+-- ============================================================================
+-- Section 4.1: Basic Structure of the Database
+-- ============================================================================
+
+-- Youssef Maged (64-20178)
 CREATE PROCEDURE dbo.createAllTables AS
 	CREATE TABLE dbo.Zone(
 		zone_id INT IDENTITY(1, 1),
@@ -275,7 +279,7 @@ CREATE PROCEDURE dbo.createAllTables AS
 	);
 GO
 
--- Mohand Essam (64-29300)
+-- Youssef Maged (64-20178)
 CREATE PROCEDURE dbo.dropAllTables AS
 	DROP TABLE IF EXISTS dbo.Feedback;
 	DROP TABLE IF EXISTS dbo.Payment;
@@ -303,11 +307,133 @@ CREATE PROCEDURE dbo.dropAllTables AS
 	DROP TABLE IF EXISTS dbo.Users;
 	DROP TABLE IF EXISTS dbo.Zone;
 GO
+
+-- Youssef Maged (64-20178)
+CREATE PROCEDURE dbo.dropAllProceduresFunctionsViews
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	-- The list comes from the catalog, so helper procedures and functions are dropped too.
+	-- @@PROCID is this procedure, which has to stay.
+	DECLARE @sql NVARCHAR(MAX) = N'';
+
+	SELECT @sql = @sql
+		+ CASE type
+			WHEN 'P' THEN N'DROP PROCEDURE '
+			WHEN 'V' THEN N'DROP VIEW '
+			ELSE N'DROP FUNCTION '
+		END
+		+ QUOTENAME(SCHEMA_NAME(schema_id)) + N'.' + QUOTENAME(name) + N'; '
+	FROM sys.objects
+	WHERE type IN ('P', 'FN', 'IF', 'TF', 'V')
+		AND is_ms_shipped = 0
+		AND object_id <> @@PROCID;
+
+	EXEC sp_executesql @sql;
+
+	RETURN 0;
+END
+GO
+
+-- Youssef Maged (64-20178)
+CREATE PROCEDURE dbo.clearAllTables
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		-- Children before parents, the same order as dropAllTables.
+		DELETE FROM dbo.Feedback;
+		DELETE FROM dbo.Payment;
+		DELETE FROM dbo.Delivery;
+		DELETE FROM dbo.SubOrder;
+		DELETE FROM dbo.Orders;
+		DELETE FROM dbo.CartItem;
+		DELETE FROM dbo.Cart;
+		DELETE FROM dbo.Voucher;
+		DELETE FROM dbo.Favorite_Product;
+		DELETE FROM dbo.Favorite_Business;
+		DELETE FROM dbo.Product;
+		DELETE FROM dbo.Blacklist;
+		DELETE FROM dbo.Pharmacy;
+		DELETE FROM dbo.Restaurant;
+		DELETE FROM dbo.Business_Phone;
+		DELETE FROM dbo.Business;
+		DELETE FROM dbo.Card;
+		DELETE FROM dbo.Address;
+		DELETE FROM dbo.Customer;
+		DELETE FROM dbo.Rider;
+		DELETE FROM dbo.Partner;
+		DELETE FROM dbo.Admin;
+		DELETE FROM dbo.User_Phone;
+		DELETE FROM dbo.Users;
+		DELETE FROM dbo.Zone;
+
+		-- RESEED 0 makes the next ID 1 only on a table that has had rows. On a table that never had
+		-- any it would make the next ID 0, so tables whose last_value is NULL are left alone.
+		DECLARE @sql NVARCHAR(MAX) = N'';
+
+		SELECT @sql = @sql + N'DBCC CHECKIDENT (''dbo.' + t.name + N''', RESEED, 0) WITH NO_INFOMSGS; '
+		FROM sys.identity_columns ic
+		INNER JOIN sys.tables t ON t.object_id = ic.object_id
+		WHERE t.schema_id = SCHEMA_ID('dbo')
+			AND ic.last_value IS NOT NULL;
+
+		EXEC sp_executesql @sql;
+
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+
+	RETURN 0;
+END
+GO
+
+-- Views and inline functions check the tables they use when they are created, so build them now.
 EXEC dbo.createAllTables;
 GO
 
 -- ============================================================================
 -- Section 4.2: Basic Data Retrieval (Views)
+
+-- Retag Atef (64-21789)
+CREATE VIEW dbo.allBusinessProfiles AS
+	SELECT b.business_id,
+		b.name AS business_name,
+		CAST(CASE
+			WHEN r.business_id IS NOT NULL THEN 'Restaurant'
+			WHEN ph.business_id IS NOT NULL THEN 'Pharmacy'
+		END AS VARCHAR(20)) AS business_type,
+		z.zone_name,
+		u.first_name + ' ' + u.last_name AS partner_name,
+		b.status,
+		b.opening_hour,
+		b.closing_hour
+	FROM dbo.Business b
+	INNER JOIN dbo.Zone z ON z.zone_id = b.zone_id
+	INNER JOIN dbo.Users u ON u.user_id = b.partner_id
+	LEFT JOIN dbo.Restaurant r ON r.business_id = b.business_id
+	LEFT JOIN dbo.Pharmacy ph ON ph.business_id = b.business_id;
+GO
+
+-- Youssef Maged (64-20178)
+CREATE VIEW dbo.BusinessesPerZone AS
+	SELECT z.zone_id,
+		z.zone_name,
+		COUNT(b.business_id) AS business_count
+	FROM dbo.Zone z
+	LEFT JOIN dbo.Business b
+		ON b.zone_id = z.zone_id
+		AND b.status = 'Active'
+	GROUP BY z.zone_id, z.zone_name;
+GO
 
 -- Farida Tarek (64-29168)
 CREATE VIEW dbo.BusinessRatingsSummary AS
@@ -335,6 +461,24 @@ CREATE VIEW dbo.ActiveVouchers AS
 	  AND expiry_date >= CAST(GETDATE() AS DATE);
 GO
 
+-- Retag Atef (64-21789)
+CREATE VIEW dbo.PendingBusinessApprovals AS
+	SELECT b.business_id,
+		b.name AS business_name,
+		CAST(CASE
+			WHEN r.business_id IS NOT NULL THEN 'Restaurant'
+			WHEN ph.business_id IS NOT NULL THEN 'Pharmacy'
+		END AS VARCHAR(20)) AS business_type,
+		z.zone_name,
+		u.first_name + ' ' + u.last_name AS partner_name
+	FROM dbo.Business b
+	INNER JOIN dbo.Zone z ON z.zone_id = b.zone_id
+	INNER JOIN dbo.Users u ON u.user_id = b.partner_id
+	LEFT JOIN dbo.Restaurant r ON r.business_id = b.business_id
+	LEFT JOIN dbo.Pharmacy ph ON ph.business_id = b.business_id
+	WHERE b.status = 'Pending';
+GO
+
 -- Farida Tarek (64-29168)
 CREATE VIEW dbo.RiderPerformanceSummary AS
 	SELECT r.rider_id,
@@ -348,6 +492,33 @@ CREATE VIEW dbo.RiderPerformanceSummary AS
 	LEFT JOIN dbo.Delivery d ON d.rider_id = r.rider_id
 	LEFT JOIN dbo.SubOrder s ON s.suborder_id = d.suborder_id
 	GROUP BY r.rider_id, u.first_name, u.last_name, z.zone_name;
+GO
+
+-- Retag Atef (64-21789)
+CREATE VIEW dbo.TopSellingProducts AS
+	SELECT TOP 10
+		p.product_id,
+		p.name AS product_name,
+		b.name AS business_name,
+		CAST(CASE
+			WHEN r.business_id IS NOT NULL THEN 'Restaurant'
+			WHEN ph.business_id IS NOT NULL THEN 'Pharmacy'
+		END AS VARCHAR(20)) AS business_type,
+		SUM(ci.quantity) AS units_sold,
+		CAST(SUM(ci.quantity * ci.unit_price) AS DECIMAL(10, 2)) AS total_revenue
+	FROM dbo.CartItem ci
+	INNER JOIN dbo.Orders o ON o.cart_id = ci.cart_id
+	INNER JOIN dbo.Product p ON p.product_id = ci.product_id
+	-- The SubOrder of the product's business in that order decides whether its units count.
+	INNER JOIN dbo.SubOrder s
+		ON s.order_id = o.order_id
+		AND s.business_id = p.business_id
+	INNER JOIN dbo.Business b ON b.business_id = p.business_id
+	LEFT JOIN dbo.Restaurant r ON r.business_id = b.business_id
+	LEFT JOIN dbo.Pharmacy ph ON ph.business_id = b.business_id
+	WHERE s.status <> 'Cancelled'
+	GROUP BY p.product_id, p.name, b.name, r.business_id, ph.business_id
+	ORDER BY units_sold DESC, p.product_id;
 GO
 
 -- Farida Tarek (64-29168)
@@ -826,6 +997,254 @@ BEGIN
 END
 GO
 
+-- Youssef Maged (64-20178)
+CREATE PROCEDURE dbo.Suspend_Business
+	@business_id INT,
+	@admin_id INT,
+	@reason VARCHAR(255)
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @business_id IS NULL OR @admin_id IS NULL
+		OR @reason IS NULL OR @reason = ''
+		RETURN -1;
+
+	DECLARE @b_status VARCHAR(20), @b_zone INT;
+	SELECT @b_status = status, @b_zone = zone_id
+	FROM dbo.Business
+	WHERE business_id = @business_id;
+
+	IF @b_status IS NULL
+		RETURN -1;
+
+	DECLARE @a_role VARCHAR(20), @a_zone INT;
+	SELECT @a_role = a.role, @a_zone = a.zone_id
+	FROM dbo.Admin a
+	INNER JOIN dbo.Users u ON u.user_id = a.admin_id
+	WHERE a.admin_id = @admin_id
+		AND u.account_status = 'Active';
+
+	-- BR-3: a Zone Admin may only suspend businesses of their own zone.
+	IF @a_role IS NULL
+		OR (@a_role = 'Zone Admin' AND (@a_zone IS NULL OR @a_zone <> @b_zone))
+		RETURN -3;
+
+	IF @b_status <> 'Active'
+		RETURN -4;
+
+	-- The SubOrders to cancel and their refund (BR-14): total_price + delivery_fee, capped at what is
+	-- left of the payment. A business has at most one SubOrder per order (UNIQUE (order_id, business_id)),
+	-- so every row is a different order.
+	DECLARE @cancelled TABLE (
+		suborder_id INT,
+		order_id INT,
+		customer_id INT,
+		method VARCHAR(20),
+		refund DECIMAL(10, 2)
+	);
+
+	INSERT INTO @cancelled (suborder_id, order_id, customer_id, method, refund)
+	SELECT s.suborder_id,
+		s.order_id,
+		c.customer_id,
+		p.method,
+		CASE
+			WHEN p.payment_id IS NULL THEN 0
+			WHEN s.total_price + s.delivery_fee < p.amount - p.refunded_amount THEN s.total_price + s.delivery_fee
+			ELSE p.amount - p.refunded_amount
+		END
+	FROM dbo.SubOrder s
+	INNER JOIN dbo.Orders o ON o.order_id = s.order_id
+	INNER JOIN dbo.Cart c ON c.cart_id = o.cart_id
+	LEFT JOIN dbo.Payment p ON p.order_id = s.order_id
+	WHERE s.business_id = @business_id
+		AND s.status IN ('Placed', 'Assigned');
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		UPDATE dbo.Business
+		SET status = 'Suspended',
+			suspension_reason = @reason
+		WHERE business_id = @business_id;
+
+		UPDATE dbo.Product
+		SET is_available = 0
+		WHERE business_id = @business_id;
+
+		UPDATE p
+		SET refunded_amount = p.refunded_amount + x.refund
+		FROM dbo.Payment p
+		INNER JOIN @cancelled x ON x.order_id = p.order_id;
+
+		-- Refunds go to the wallet unless the order was paid in cash. A customer can have several
+		-- affected orders, so the refunds are added up per customer first.
+		UPDATE cu
+		SET wallet_balance = cu.wallet_balance + x.refund
+		FROM dbo.Customer cu
+		INNER JOIN (
+			SELECT customer_id, SUM(refund) AS refund
+			FROM @cancelled
+			WHERE method <> 'Cash'
+			GROUP BY customer_id
+		) x ON x.customer_id = cu.customer_id;
+
+		UPDATE dbo.SubOrder
+		SET status = 'Cancelled'
+		WHERE suborder_id IN (SELECT suborder_id FROM @cancelled);
+
+		-- BR-11: recompute the status of every affected order.
+		UPDATE o
+		SET status = CASE
+			WHEN NOT EXISTS (SELECT 1 FROM dbo.SubOrder s WHERE s.order_id = o.order_id AND s.status <> 'Cancelled')
+				THEN 'Cancelled'
+			WHEN NOT EXISTS (SELECT 1 FROM dbo.SubOrder s WHERE s.order_id = o.order_id AND s.status NOT IN ('Cancelled', 'Delivered'))
+				THEN 'Delivered'
+			WHEN EXISTS (SELECT 1 FROM dbo.SubOrder s WHERE s.order_id = o.order_id AND s.status IN ('Picked Up', 'Delivered'))
+				THEN 'In Progress'
+			ELSE 'Placed'
+		END
+		FROM dbo.Orders o
+		WHERE o.order_id IN (SELECT order_id FROM @cancelled);
+
+		-- An order that is now cancelled entirely gets its voucher back, as in Cancel_Order.
+		UPDATE dbo.Voucher
+		SET status = 'Unused'
+		WHERE voucher_id IN (
+			SELECT voucher_id
+			FROM dbo.Orders
+			WHERE status = 'Cancelled'
+				AND order_id IN (SELECT order_id FROM @cancelled)
+		);
+
+		UPDATE dbo.Orders
+		SET voucher_id = NULL
+		WHERE status = 'Cancelled'
+			AND order_id IN (SELECT order_id FROM @cancelled);
+
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+
+	RETURN 0;
+END
+GO
+
+-- Youssef Maged (64-20178)
+CREATE PROCEDURE dbo.Reinstate_Business
+	@business_id INT,
+	@super_admin_id INT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @business_id IS NULL OR @super_admin_id IS NULL
+		RETURN -1;
+
+	DECLARE @b_status VARCHAR(20);
+	SELECT @b_status = status
+	FROM dbo.Business
+	WHERE business_id = @business_id;
+
+	IF @b_status IS NULL
+		RETURN -1;
+
+	IF NOT EXISTS (
+		SELECT 1
+		FROM dbo.Admin a
+		INNER JOIN dbo.Users u ON u.user_id = a.admin_id
+		WHERE a.admin_id = @super_admin_id
+			AND a.role = 'Super Admin'
+			AND u.account_status = 'Active'
+	)
+		RETURN -3;
+
+	IF @b_status <> 'Suspended'
+		RETURN -4;
+
+	-- The products stay unavailable until the partner re-enables them (Toggle_Product_Status).
+	UPDATE dbo.Business
+	SET status = 'Active',
+		suspension_reason = NULL
+	WHERE business_id = @business_id;
+
+	RETURN 0;
+END
+GO
+
+-- Youssef Maged (64-20178)
+CREATE PROCEDURE dbo.Create_Zone
+	@zone_name VARCHAR(50),
+	@delivery_fee DECIMAL(10, 2),
+	@super_admin_id INT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @super_admin_id IS NULL
+		OR NOT EXISTS (
+			SELECT 1
+			FROM dbo.Admin a
+			INNER JOIN dbo.Users u ON u.user_id = a.admin_id
+			WHERE a.admin_id = @super_admin_id
+				AND a.role = 'Super Admin'
+				AND u.account_status = 'Active'
+		)
+		RETURN -3;
+
+	IF @zone_name IS NULL OR @zone_name = ''
+		OR @delivery_fee IS NULL OR @delivery_fee < 0
+		RETURN -1;
+
+	IF EXISTS (SELECT 1 FROM dbo.Zone WHERE zone_name = @zone_name)
+		RETURN -2;
+
+	INSERT INTO dbo.Zone (zone_name, delivery_fee)
+	VALUES (@zone_name, @delivery_fee);
+
+	RETURN 0;
+END
+GO
+
+-- Youssef Maged (64-20178)
+CREATE PROCEDURE dbo.Update_Zone_Fee
+	@zone_id INT,
+	@new_fee DECIMAL(10, 2),
+	@super_admin_id INT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @super_admin_id IS NULL
+		OR NOT EXISTS (
+			SELECT 1
+			FROM dbo.Admin a
+			INNER JOIN dbo.Users u ON u.user_id = a.admin_id
+			WHERE a.admin_id = @super_admin_id
+				AND a.role = 'Super Admin'
+				AND u.account_status = 'Active'
+		)
+		RETURN -3;
+
+	IF @zone_id IS NULL
+		OR NOT EXISTS (SELECT 1 FROM dbo.Zone WHERE zone_id = @zone_id)
+		OR @new_fee IS NULL OR @new_fee < 0
+		RETURN -1;
+
+	-- Existing SubOrders keep the fee they were created with (SubOrder.delivery_fee).
+	UPDATE dbo.Zone
+	SET delivery_fee = @new_fee
+	WHERE zone_id = @zone_id;
+
+	RETURN 0;
+END
+GO
+
 -- Mohamed Amr (64-24301)
 CREATE PROCEDURE dbo.Assign_Admin_Zone
 	@admin_id INT,
@@ -1144,6 +1563,44 @@ BEGIN
 END
 GO
 
+-- Youssef Maged (64-20178)
+CREATE FUNCTION dbo.ZoneOrderReport
+(
+	@zone_id INT,
+	@from_date DATE,
+	@to_date DATE
+)
+RETURNS TABLE
+AS
+RETURN
+(
+	SELECT z.zone_id,
+		z.zone_name,
+		COUNT(o.order_id) AS number_of_orders,
+		CAST(AVG(o.total_amount) AS DECIMAL(10, 2)) AS avg_order_total,
+		CAST(ISNULL(SUM(o.commission), 0) AS DECIMAL(10, 2)) AS platform_commission
+	FROM dbo.Zone z
+	LEFT JOIN (
+		-- Non-cancelled orders of the period, each with 10% of its non-cancelled SubOrders.
+		SELECT ord.order_id,
+			ord.zone_id,
+			ord.total_amount,
+			0.10 * (
+				SELECT ISNULL(SUM(s.total_price), 0)
+				FROM dbo.SubOrder s
+				WHERE s.order_id = ord.order_id
+					AND s.status <> 'Cancelled'
+			) AS commission
+		FROM dbo.Orders ord
+		WHERE ord.status <> 'Cancelled'
+			AND CAST(ord.order_date AS DATE) BETWEEN @from_date AND @to_date
+	) o ON o.zone_id = z.zone_id
+	WHERE z.zone_id = @zone_id
+		AND @from_date <= @to_date
+	GROUP BY z.zone_id, z.zone_name
+);
+GO
+
 -- Farida Tarek (64-29168)
 CREATE FUNCTION dbo.TopRiders (@from_date date, @to_date date)
 RETURNS TABLE
@@ -1179,9 +1636,321 @@ RETURN
 );
 GO
 
+-- Youssef Maged (64-20178)
+CREATE FUNCTION dbo.Daily_Revenue_Report
+(
+	@report_date DATE
+)
+RETURNS TABLE
+AS
+RETURN
+(
+	SELECT x.zone_name,
+		x.business_type,
+		COUNT(*) AS number_of_suborders,
+		CAST(SUM(x.total_price) AS DECIMAL(10, 2)) AS gross_sales,
+		CAST(SUM(x.delivery_fee) AS DECIMAL(10, 2)) AS delivery_fees,
+		CAST(0.10 * SUM(x.total_price) AS DECIMAL(10, 2)) AS platform_commission
+	FROM (
+		SELECT z.zone_name,
+			CAST(CASE
+				WHEN r.business_id IS NOT NULL THEN 'Restaurant'
+				WHEN ph.business_id IS NOT NULL THEN 'Pharmacy'
+			END AS VARCHAR(20)) AS business_type,
+			s.total_price,
+			s.delivery_fee
+		FROM dbo.SubOrder s
+		INNER JOIN dbo.Orders o ON o.order_id = s.order_id
+		INNER JOIN dbo.Zone z ON z.zone_id = o.zone_id
+		LEFT JOIN dbo.Restaurant r ON r.business_id = s.business_id
+		LEFT JOIN dbo.Pharmacy ph ON ph.business_id = s.business_id
+		WHERE s.status <> 'Cancelled'
+			AND CAST(o.order_date AS DATE) = @report_date
+	) x
+	GROUP BY x.zone_name, x.business_type
+);
+GO
+
 -- ============================================================================
 -- Section 4.5: As a Partner, I should be able to:
 -- ============================================================================
+
+-- Retag Atef (64-21789)
+CREATE PROCEDURE dbo.Register_Business
+	@partner_id INT,
+	@name VARCHAR(100),
+	@description VARCHAR(255),
+	@link_website VARCHAR(255),
+	@zone_id INT,
+	@opening_hour TIME,
+	@closing_hour TIME,
+	@expected_delivery_time INT,
+	@phone CHAR(11),
+	@business_type VARCHAR(20),
+	@cuisine_type VARCHAR(50),
+	@food_category VARCHAR(50),
+	@pharmacy_type VARCHAR(50)
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @partner_id IS NULL
+		OR @name IS NULL OR @name = ''
+		OR @zone_id IS NULL OR NOT EXISTS (SELECT 1 FROM dbo.Zone WHERE zone_id = @zone_id)
+		OR @opening_hour IS NULL OR @closing_hour IS NULL
+		OR @expected_delivery_time IS NULL OR @expected_delivery_time <= 0
+		OR @phone IS NULL OR LEN(@phone) <> 11 OR @phone LIKE '%[^0-9]%'
+		OR @business_type IS NULL OR @business_type NOT IN ('Restaurant', 'Pharmacy')
+		RETURN -1;
+
+	-- A Restaurant needs cuisine_type and food_category, a Pharmacy needs pharmacy_type.
+	IF (@business_type = 'Restaurant' AND (ISNULL(@cuisine_type, '') = '' OR ISNULL(@food_category, '') = ''))
+		OR (@business_type = 'Pharmacy' AND ISNULL(@pharmacy_type, '') = '')
+		RETURN -1;
+
+	IF NOT EXISTS (SELECT 1 FROM dbo.Partner WHERE partner_id = @partner_id)
+		RETURN -3;
+
+	DECLARE @business_id INT, @status VARCHAR(20);
+	SELECT @business_id = business_id, @status = status
+	FROM dbo.Business
+	WHERE partner_id = @partner_id;
+
+	-- A partner owns at most one business. Only a Rejected one may be registered again.
+	IF @business_id IS NOT NULL AND @status <> 'Rejected'
+		RETURN -2;
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		IF @business_id IS NULL
+		BEGIN
+			INSERT INTO dbo.Business (name, description, link_website, opening_hour, closing_hour,
+				expected_delivery_time, status, suspension_reason, partner_id, zone_id)
+			VALUES (@name, @description, @link_website, @opening_hour, @closing_hour,
+				@expected_delivery_time, 'Pending', NULL, @partner_id, @zone_id);
+
+			SET @business_id = SCOPE_IDENTITY();
+		END
+		ELSE
+		BEGIN
+			-- Registering a Rejected business again reuses its row: new data, phones and subtype, back to Pending.
+			UPDATE dbo.Business
+			SET name = @name,
+				description = @description,
+				link_website = @link_website,
+				opening_hour = @opening_hour,
+				closing_hour = @closing_hour,
+				expected_delivery_time = @expected_delivery_time,
+				status = 'Pending',
+				suspension_reason = NULL,
+				zone_id = @zone_id
+			WHERE business_id = @business_id;
+
+			DELETE FROM dbo.Business_Phone WHERE business_id = @business_id;
+			DELETE FROM dbo.Restaurant WHERE business_id = @business_id;
+			DELETE FROM dbo.Pharmacy WHERE business_id = @business_id;
+		END
+
+		INSERT INTO dbo.Business_Phone (business_id, phone)
+		VALUES (@business_id, @phone);
+
+		IF @business_type = 'Restaurant'
+			INSERT INTO dbo.Restaurant (business_id, cuisine_type, food_category)
+			VALUES (@business_id, @cuisine_type, @food_category);
+		ELSE
+			INSERT INTO dbo.Pharmacy (business_id, pharmacy_type)
+			VALUES (@business_id, @pharmacy_type);
+
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+
+	RETURN 0;
+END
+GO
+
+-- Retag Atef (64-21789)
+CREATE PROCEDURE dbo.Update_Business_Info
+	@business_id INT,
+	@opening_hour TIME,
+	@closing_hour TIME,
+	@phone CHAR(11),
+	@link_website VARCHAR(255)
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @business_id IS NULL
+		OR NOT EXISTS (SELECT 1 FROM dbo.Business WHERE business_id = @business_id)
+		OR @opening_hour IS NULL OR @closing_hour IS NULL
+		OR (@phone IS NOT NULL AND (LEN(@phone) <> 11 OR @phone LIKE '%[^0-9]%'))
+		RETURN -1;
+
+	IF EXISTS (SELECT 1 FROM dbo.Business_Phone WHERE business_id = @business_id AND phone = @phone)
+		RETURN -2;
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		UPDATE dbo.Business
+		SET opening_hour = @opening_hour,
+			closing_hour = @closing_hour,
+			link_website = @link_website
+		WHERE business_id = @business_id;
+
+		-- The phone is optional: with NULL only the hours and the website change.
+		IF @phone IS NOT NULL
+			INSERT INTO dbo.Business_Phone (business_id, phone)
+			VALUES (@business_id, @phone);
+
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+
+	RETURN 0;
+END
+GO
+
+-- Retag Atef (64-21789)
+CREATE PROCEDURE dbo.Upsert_Product
+	@business_id INT,
+	@product_id INT,
+	@name VARCHAR(100),
+	@description VARCHAR(255),
+	@category VARCHAR(50),
+	@price DECIMAL(10, 2),
+	@is_available BIT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @business_id IS NULL
+		OR NOT EXISTS (SELECT 1 FROM dbo.Business WHERE business_id = @business_id)
+		OR (@product_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM dbo.Product WHERE product_id = @product_id))
+		RETURN -1;
+
+	IF @product_id IS NOT NULL
+		AND NOT EXISTS (SELECT 1 FROM dbo.Product WHERE product_id = @product_id AND business_id = @business_id)
+		RETURN -3;
+
+	IF EXISTS (SELECT 1 FROM dbo.Business WHERE business_id = @business_id AND status = 'Suspended')
+		RETURN -4;
+
+	-- On an update the current discount must stay within 50% of the new price (BR-7).
+	IF @name IS NULL OR @name = ''
+		OR @category IS NULL OR @category = ''
+		OR @price IS NULL OR @price <= 0
+		OR @is_available IS NULL
+		OR EXISTS (SELECT 1 FROM dbo.Product WHERE product_id = @product_id AND discount_amount > 0.5 * @price)
+		RETURN -1;
+
+	IF @product_id IS NULL
+		INSERT INTO dbo.Product (name, description, category, price, discount_amount, is_available, business_id)
+		VALUES (@name, @description, @category, @price, 0, @is_available, @business_id);
+	ELSE
+		UPDATE dbo.Product
+		SET name = @name,
+			description = @description,
+			category = @category,
+			price = @price,
+			is_available = @is_available
+		WHERE product_id = @product_id;
+
+	RETURN 0;
+END
+GO
+
+-- Retag Atef (64-21789)
+CREATE PROCEDURE dbo.Toggle_Product_Status
+	@product_id INT,
+	@is_available BIT
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @product_id IS NULL OR @is_available IS NULL
+		OR NOT EXISTS (SELECT 1 FROM dbo.Product WHERE product_id = @product_id)
+		RETURN -1;
+
+	IF @is_available = 1
+		AND EXISTS (
+			SELECT 1
+			FROM dbo.Product p
+			INNER JOIN dbo.Business b ON b.business_id = p.business_id
+			WHERE p.product_id = @product_id
+				AND b.status = 'Suspended'
+		)
+		RETURN -4;
+
+	UPDATE dbo.Product
+	SET is_available = @is_available
+	WHERE product_id = @product_id;
+
+	RETURN 0;
+END
+GO
+
+-- Retag Atef (64-21789)
+CREATE PROCEDURE dbo.Set_Product_Promotion
+	@product_id INT,
+	@discount_amount DECIMAL(10, 2)
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @product_id IS NULL OR @discount_amount IS NULL
+		OR NOT EXISTS (SELECT 1 FROM dbo.Product WHERE product_id = @product_id)
+		RETURN -1;
+
+	-- BR-7: a fixed amount between 0 and 50% of the price. 0 removes the promotion.
+	IF @discount_amount < 0
+		OR EXISTS (SELECT 1 FROM dbo.Product WHERE product_id = @product_id AND @discount_amount > 0.5 * price)
+		RETURN -1;
+
+	UPDATE dbo.Product
+	SET discount_amount = @discount_amount
+	WHERE product_id = @product_id;
+
+	RETURN 0;
+END
+GO
+
+-- Retag Atef (64-21789)
+CREATE FUNCTION dbo.BusinessSalesReport
+(
+	@business_id INT,
+	@from_date DATE,
+	@to_date DATE
+)
+RETURNS TABLE
+AS
+RETURN
+(
+	SELECT p.product_id,
+		p.name AS product_name,
+		SUM(ci.quantity) AS units_sold,
+		CAST(SUM(ci.quantity * ci.unit_price) AS DECIMAL(10, 2)) AS revenue_per_product
+	FROM dbo.SubOrder s
+	INNER JOIN dbo.Orders o ON o.order_id = s.order_id
+	INNER JOIN dbo.CartItem ci ON ci.cart_id = o.cart_id
+	INNER JOIN dbo.Product p
+		ON p.product_id = ci.product_id
+		AND p.business_id = s.business_id
+	WHERE s.business_id = @business_id
+		AND s.status <> 'Cancelled'
+		AND CAST(o.order_date AS DATE) BETWEEN @from_date AND @to_date
+	GROUP BY p.product_id, p.name
+);
+GO
 
 -- Farida Tarek (64-29168)
 CREATE FUNCTION dbo.BusinessFeedbackOverview (@business_id int)
@@ -1207,6 +1976,537 @@ GO
 -- ============================================================================
 -- Section 4.6: As a Customer, I should be able to:
 -- ============================================================================
+
+-- Mohand Essam (64-29300)
+CREATE PROCEDURE dbo.Add_Customer_Address(
+	@customer_id INT,
+	@description VARCHAR(150),
+	@zone_id INT
+) AS
+	SET NOCOUNT ON;
+
+	IF @customer_id IS NULL OR @description IS NULL OR @description = '' OR @zone_id IS NULL
+		RETURN -1;
+	IF NOT EXISTS (SELECT 1 FROM dbo.Zone WHERE zone_id = @zone_id)
+		RETURN -1;
+	IF NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
+		RETURN -3;
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+		UPDATE dbo.Address SET is_active = 0 WHERE customer_id = @customer_id;
+		INSERT INTO dbo.Address(description, is_active, customer_id, zone_id)
+		VALUES (@description, 1, @customer_id, @zone_id);
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+
+	RETURN 0;
+GO
+
+-- Mohand Essam (64-29300)
+CREATE PROCEDURE dbo.Update_Delete_Customer_Address(
+	@customer_id INT,
+	@address_id INT,
+	@description VARCHAR(150),
+	@zone_id INT,
+	@action VARCHAR(20)
+) AS
+	SET NOCOUNT ON;
+
+	IF @customer_id IS NULL OR @address_id IS NULL OR @action IS NULL OR @action NOT IN ('Update', 'Delete')
+		RETURN -1;
+	IF @action = 'Update' AND (@description IS NULL OR @description = '' OR NOT EXISTS (SELECT 1 FROM dbo.Zone WHERE zone_id = @zone_id))
+		RETURN -1;
+	IF NOT EXISTS (SELECT 1 FROM dbo.Address WHERE address_id = @address_id)
+		RETURN -1;
+	IF NOT EXISTS (SELECT 1 FROM dbo.Address WHERE address_id = @address_id AND customer_id = @customer_id)
+		RETURN -3;
+	IF EXISTS (
+		SELECT 1
+		FROM dbo.Orders o
+		JOIN dbo.Cart c ON c.cart_id = o.cart_id
+		WHERE c.address_id = @address_id AND o.status IN ('Placed', 'In Progress')
+	)
+		RETURN -4;
+	IF @action = 'Delete' AND EXISTS (SELECT 1 FROM dbo.Cart WHERE address_id = @address_id)
+		RETURN -4;
+
+	IF @action = 'Update'
+		UPDATE dbo.Address SET description = @description, zone_id = @zone_id WHERE address_id = @address_id;
+	ELSE
+		DELETE FROM dbo.Address WHERE address_id = @address_id;
+
+	RETURN 0;
+GO
+
+-- Mohand Essam (64-29300)
+CREATE PROCEDURE dbo.Change_Active_Address(
+	@customer_id INT,
+	@new_address_id INT
+) AS
+	SET NOCOUNT ON;
+
+	IF @customer_id IS NULL OR @new_address_id IS NULL
+		RETURN -1;
+	IF NOT EXISTS (SELECT 1 FROM dbo.Address WHERE address_id = @new_address_id)
+		RETURN -1;
+	IF NOT EXISTS (SELECT 1 FROM dbo.Address WHERE address_id = @new_address_id AND customer_id = @customer_id)
+		RETURN -3;
+
+	-- Carts of the other addresses stay as they are; they can be used again once their address is active.
+	BEGIN TRY
+		BEGIN TRANSACTION;
+		UPDATE dbo.Address SET is_active = 0 WHERE customer_id = @customer_id AND address_id <> @new_address_id;
+		UPDATE dbo.Address SET is_active = 1 WHERE address_id = @new_address_id;
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+
+	RETURN 0;
+GO
+
+-- Mohand Essam (64-29300)
+CREATE PROCEDURE dbo.Add_Card(
+	@customer_id INT,
+	@card_no CHAR(16),
+	@card_holder_name VARCHAR(100),
+	@expiration_date DATE
+) AS
+	SET NOCOUNT ON;
+
+	IF @customer_id IS NULL OR @card_no IS NULL OR @card_holder_name IS NULL OR @card_holder_name = '' OR @expiration_date IS NULL
+		RETURN -1;
+	IF LEN(@card_no) <> 16 OR @card_no LIKE '%[^0-9]%' OR @expiration_date < CAST(GETDATE() AS DATE)
+		RETURN -1;
+	IF NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
+		RETURN -3;
+	IF EXISTS (SELECT 1 FROM dbo.Card WHERE customer_id = @customer_id AND card_no = @card_no)
+		RETURN -2;
+
+	INSERT INTO dbo.Card(card_no, card_holder_name, expiration_date, customer_id)
+	VALUES (@card_no, @card_holder_name, @expiration_date, @customer_id);
+
+	RETURN 0;
+GO
+
+-- Mohand Essam (64-29300)
+CREATE PROCEDURE dbo.Create_Cart(
+	@customer_id INT
+) AS
+	SET NOCOUNT ON;
+
+	IF @customer_id IS NULL
+		RETURN -1;
+	IF NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
+		RETURN -3;
+	IF EXISTS (SELECT 1 FROM dbo.Users WHERE user_id = @customer_id AND account_status = 'Blacklisted')
+		RETURN -3;
+
+	DECLARE @address_id INT;
+	SELECT @address_id = address_id FROM dbo.Address WHERE customer_id = @customer_id AND is_active = 1;
+
+	IF @address_id IS NULL
+		RETURN -1;
+	IF EXISTS (SELECT 1 FROM dbo.Cart WHERE address_id = @address_id AND status = 'Active')
+		RETURN -2;
+
+	INSERT INTO dbo.Cart(status, created_at, customer_id, address_id)
+	VALUES ('Active', GETDATE(), @customer_id, @address_id);
+
+	RETURN 0;
+GO
+
+-- Mohand Essam (64-29300)
+CREATE PROCEDURE dbo.Add_To_Cart(
+	@cart_id INT,
+	@product_id INT,
+	@quantity INT,
+	@notes VARCHAR(255)
+) AS
+	SET NOCOUNT ON;
+
+	IF @cart_id IS NULL OR @product_id IS NULL OR @quantity IS NULL OR @quantity < 1
+		RETURN -1;
+
+	DECLARE @cart_status VARCHAR(20), @address_active BIT, @address_zone INT;
+	SELECT @cart_status = c.status, @address_active = a.is_active, @address_zone = a.zone_id
+	FROM dbo.Cart c
+	JOIN dbo.Address a ON a.address_id = c.address_id
+	WHERE c.cart_id = @cart_id;
+
+	DECLARE @product_available BIT, @business_status VARCHAR(20), @business_zone INT;
+	SELECT @product_available = p.is_available, @business_status = b.status, @business_zone = b.zone_id
+	FROM dbo.Product p
+	JOIN dbo.Business b ON b.business_id = p.business_id
+	WHERE p.product_id = @product_id;
+
+	IF @cart_status IS NULL OR @product_available IS NULL
+		RETURN -1;
+	-- BR-8: only the Active cart of the active address can be edited.
+	IF @cart_status <> 'Active' OR @address_active = 0
+		RETURN -4;
+	-- BR-5: customers only see available products of Active businesses.
+	IF @product_available = 0 OR @business_status <> 'Active'
+		RETURN -4;
+	IF @business_zone <> @address_zone
+		RETURN -5;
+
+	DECLARE @current_quantity INT = 0;
+	SELECT @current_quantity = quantity FROM dbo.CartItem WHERE cart_id = @cart_id AND product_id = @product_id;
+
+	-- Written as a subtraction so a huge @quantity can't overflow INT.
+	IF @quantity > 10 - @current_quantity
+		RETURN -6;
+
+	IF @current_quantity = 0
+		INSERT INTO dbo.CartItem(cart_id, product_id, quantity, notes, unit_price)
+		VALUES (@cart_id, @product_id, @quantity, @notes, NULL);
+	ELSE
+		UPDATE dbo.CartItem
+		SET quantity = quantity + @quantity, notes = ISNULL(@notes, notes)
+		WHERE cart_id = @cart_id AND product_id = @product_id;
+
+	RETURN 0;
+GO
+
+-- Mohand Essam (64-29300)
+CREATE PROCEDURE dbo.Remove_From_Cart(
+	@cart_id INT,
+	@product_id INT
+) AS
+	SET NOCOUNT ON;
+
+	IF @cart_id IS NULL OR @product_id IS NULL
+		RETURN -1;
+	IF NOT EXISTS (SELECT 1 FROM dbo.Cart WHERE cart_id = @cart_id)
+		RETURN -1;
+	IF EXISTS (SELECT 1 FROM dbo.Cart WHERE cart_id = @cart_id AND status <> 'Active')
+		RETURN -4;
+	IF NOT EXISTS (SELECT 1 FROM dbo.CartItem WHERE cart_id = @cart_id AND product_id = @product_id)
+		RETURN -9;
+
+	DELETE FROM dbo.CartItem WHERE cart_id = @cart_id AND product_id = @product_id;
+
+	RETURN 0;
+GO
+
+-- Mohand Essam (64-29300)
+CREATE FUNCTION dbo.Calculate_Voucher_Discount(
+	@voucher_id INT,
+	@order_subtotal DECIMAL(10, 2)
+) RETURNS DECIMAL(10, 2) AS
+BEGIN
+	IF @order_subtotal IS NULL OR @order_subtotal < 0
+		RETURN -1;
+
+	DECLARE @is_percentage BIT, @amount DECIMAL(10, 2);
+	SELECT @is_percentage = is_percentage, @amount = amount
+	FROM dbo.Voucher
+	WHERE voucher_id = @voucher_id AND status = 'Unused' AND expiry_date >= CAST(GETDATE() AS DATE);
+
+	-- NULL, missing, used or expired voucher: no discount.
+	IF @amount IS NULL
+		RETURN 0;
+
+	-- BR-13: the discount applies to the subtotal only and never exceeds it.
+	DECLARE @discount DECIMAL(10, 2) = CASE WHEN @is_percentage = 1 THEN @order_subtotal * @amount / 100 ELSE @amount END;
+	IF @discount > @order_subtotal
+		RETURN @order_subtotal;
+
+	RETURN @discount;
+END
+GO
+
+-- Mohand Essam (64-29300)
+CREATE PROCEDURE dbo.Checkout_Cart(
+	@cart_id INT,
+	@voucher_id INT,
+	@payment_method VARCHAR(20),
+	@card_id INT
+) AS
+	SET NOCOUNT ON;
+
+	-- Stored exactly as spelled in Section 2.3, whatever case the caller used.
+	SET @payment_method = CASE @payment_method WHEN 'Cash' THEN 'Cash' WHEN 'Card' THEN 'Card' WHEN 'Wallet' THEN 'Wallet' END;
+
+	IF @cart_id IS NULL OR @payment_method IS NULL
+		RETURN -1;
+
+	DECLARE @cart_status VARCHAR(20), @customer_id INT, @address_active BIT, @zone_id INT;
+	SELECT @cart_status = c.status, @customer_id = c.customer_id, @address_active = a.is_active, @zone_id = a.zone_id
+	FROM dbo.Cart c
+	JOIN dbo.Address a ON a.address_id = c.address_id
+	WHERE c.cart_id = @cart_id;
+
+	IF @cart_status IS NULL
+		RETURN -1;
+	IF @cart_status <> 'Active'
+		RETURN -4;
+	IF NOT EXISTS (SELECT 1 FROM dbo.CartItem WHERE cart_id = @cart_id)
+		RETURN -9;
+	IF EXISTS (SELECT 1 FROM dbo.Users WHERE user_id = @customer_id AND account_status = 'Blacklisted')
+		RETURN -3;
+	-- The order always goes to the active address, so the cart has to be the one of that address.
+	IF @address_active = 0
+		RETURN -4;
+
+	DECLARE @now DATETIME = GETDATE();
+	DECLARE @time TIME = CAST(@now AS TIME);
+
+	IF EXISTS (
+		SELECT 1
+		FROM dbo.CartItem ci
+		JOIN dbo.Product p ON p.product_id = ci.product_id
+		JOIN dbo.Business b ON b.business_id = p.business_id
+		WHERE ci.cart_id = @cart_id AND (p.is_available = 0 OR b.status <> 'Active')
+	)
+		RETURN -4;
+	IF EXISTS (
+		SELECT 1
+		FROM dbo.CartItem ci
+		JOIN dbo.Product p ON p.product_id = ci.product_id
+		JOIN dbo.Business b ON b.business_id = p.business_id
+		WHERE ci.cart_id = @cart_id AND b.zone_id <> @zone_id
+	)
+		RETURN -5;
+	-- BR-6: open in [opening_hour, closing_hour), past midnight when opening > closing, all day when equal.
+	IF EXISTS (
+		SELECT 1
+		FROM dbo.CartItem ci
+		JOIN dbo.Product p ON p.product_id = ci.product_id
+		JOIN dbo.Business b ON b.business_id = p.business_id
+		WHERE ci.cart_id = @cart_id
+			AND b.opening_hour <> b.closing_hour
+			AND NOT (
+				(b.opening_hour < b.closing_hour AND @time >= b.opening_hour AND @time < b.closing_hour)
+				OR (b.opening_hour > b.closing_hour AND (@time >= b.opening_hour OR @time < b.closing_hour))
+			)
+	)
+		RETURN -4;
+	-- BR-13: the voucher must belong to the customer, be Unused and not be expired.
+	IF @voucher_id IS NOT NULL AND NOT EXISTS (
+		SELECT 1
+		FROM dbo.Voucher
+		WHERE voucher_id = @voucher_id AND customer_id = @customer_id
+			AND status = 'Unused' AND expiry_date >= CAST(@now AS DATE)
+	)
+		RETURN -1;
+
+	-- BR-9: one SubOrder, and so one delivery fee, per business.
+	DECLARE @subtotal DECIMAL(10, 2), @business_count INT;
+	SELECT @subtotal = SUM(ci.quantity * (p.price - p.discount_amount)), @business_count = COUNT(DISTINCT p.business_id)
+	FROM dbo.CartItem ci
+	JOIN dbo.Product p ON p.product_id = ci.product_id
+	WHERE ci.cart_id = @cart_id;
+
+	DECLARE @delivery_fee DECIMAL(10, 2) = (SELECT delivery_fee FROM dbo.Zone WHERE zone_id = @zone_id);
+	DECLARE @discount DECIMAL(10, 2) = dbo.Calculate_Voucher_Discount(@voucher_id, @subtotal);
+	DECLARE @total DECIMAL(10, 2) = @subtotal + @business_count * @delivery_fee - @discount;
+
+	-- BR-10: Card needs a valid card of the customer, Wallet needs enough balance, Cash needs nothing.
+	IF @payment_method = 'Card' AND NOT EXISTS (
+		SELECT 1
+		FROM dbo.Card
+		WHERE card_id = @card_id AND customer_id = @customer_id AND expiration_date >= CAST(@now AS DATE)
+	)
+		RETURN -7;
+	IF @payment_method = 'Wallet' AND (SELECT wallet_balance FROM dbo.Customer WHERE customer_id = @customer_id) < @total
+		RETURN -7;
+	IF NOT EXISTS (
+		SELECT 1
+		FROM dbo.Rider r
+		JOIN dbo.Users u ON u.user_id = r.rider_id
+		WHERE r.zone_id = @zone_id AND r.is_available = 1 AND u.account_status = 'Active'
+	)
+		RETURN -8;
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+
+		UPDATE ci
+		SET unit_price = p.price - p.discount_amount
+		FROM dbo.CartItem ci
+		JOIN dbo.Product p ON p.product_id = ci.product_id
+		WHERE ci.cart_id = @cart_id;
+
+		INSERT INTO dbo.Orders(order_date, status, discount_amount, total_amount, cart_id, zone_id, voucher_id)
+		VALUES (@now, 'Placed', @discount, @total, @cart_id, @zone_id, @voucher_id);
+		DECLARE @order_id INT = SCOPE_IDENTITY();
+
+		-- ORDER BY fixes the identity order, so SubOrders are numbered in business order.
+		INSERT INTO dbo.SubOrder(status, total_price, delivery_fee, order_id, business_id)
+		SELECT 'Placed', SUM(ci.quantity * ci.unit_price), @delivery_fee, @order_id, p.business_id
+		FROM dbo.CartItem ci
+		JOIN dbo.Product p ON p.product_id = ci.product_id
+		WHERE ci.cart_id = @cart_id
+		GROUP BY p.business_id
+		ORDER BY p.business_id;
+
+		-- BR-12: each SubOrder goes to the least-busy available rider of the zone (ties: smallest rider_id).
+		-- One SubOrder at a time, so every assignment counts when choosing the rider of the next one.
+		DECLARE @rider_id INT;
+		DECLARE @suborder_id INT = (SELECT MIN(suborder_id) FROM dbo.SubOrder WHERE order_id = @order_id);
+		WHILE @suborder_id IS NOT NULL
+		BEGIN
+			SELECT TOP 1 @rider_id = r.rider_id
+			FROM dbo.Rider r
+			JOIN dbo.Users u ON u.user_id = r.rider_id
+			WHERE r.zone_id = @zone_id AND r.is_available = 1 AND u.account_status = 'Active'
+			ORDER BY (
+				SELECT COUNT(*)
+				FROM dbo.Delivery d
+				JOIN dbo.SubOrder s ON s.suborder_id = d.suborder_id
+				WHERE d.rider_id = r.rider_id AND s.status IN ('Assigned', 'Picked Up')
+			), r.rider_id;
+
+			INSERT INTO dbo.Delivery(assigned_at, suborder_id, rider_id)
+			VALUES (@now, @suborder_id, @rider_id);
+			UPDATE dbo.SubOrder SET status = 'Assigned' WHERE suborder_id = @suborder_id;
+
+			SET @suborder_id = (SELECT MIN(suborder_id) FROM dbo.SubOrder WHERE order_id = @order_id AND suborder_id > @suborder_id);
+		END
+
+		UPDATE dbo.Voucher SET status = 'Used' WHERE voucher_id = @voucher_id;
+
+		INSERT INTO dbo.Payment(amount, currency, method, transaction_date, refunded_amount, order_id, card_id)
+		VALUES (@total, 'EGP', @payment_method, @now, 0, @order_id, CASE WHEN @payment_method = 'Card' THEN @card_id END);
+
+		IF @payment_method = 'Wallet'
+			UPDATE dbo.Customer SET wallet_balance = wallet_balance - @total WHERE customer_id = @customer_id;
+
+		UPDATE dbo.Cart SET status = 'Checked Out' WHERE cart_id = @cart_id;
+
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+
+	RETURN 0;
+GO
+
+-- Mohand Essam (64-29300)
+CREATE PROCEDURE dbo.Cancel_Order(
+	@order_id INT
+) AS
+	SET NOCOUNT ON;
+
+	IF @order_id IS NULL
+		RETURN -1;
+	IF NOT EXISTS (SELECT 1 FROM dbo.Orders WHERE order_id = @order_id)
+		RETURN -1;
+	IF EXISTS (SELECT 1 FROM dbo.Orders WHERE order_id = @order_id AND status = 'Cancelled')
+		RETURN -4;
+	IF EXISTS (SELECT 1 FROM dbo.SubOrder WHERE order_id = @order_id AND status IN ('Picked Up', 'Delivered'))
+		RETURN -4;
+
+	-- BR-14: cancelling a whole order refunds whatever hasn't been refunded yet, to the wallet unless paid in cash.
+	DECLARE @customer_id INT, @method VARCHAR(20), @refund DECIMAL(10, 2);
+	SELECT @customer_id = c.customer_id, @method = p.method, @refund = p.amount - p.refunded_amount
+	FROM dbo.Orders o
+	JOIN dbo.Cart c ON c.cart_id = o.cart_id
+	LEFT JOIN dbo.Payment p ON p.order_id = o.order_id
+	WHERE o.order_id = @order_id;
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+		UPDATE dbo.Payment SET refunded_amount = amount WHERE order_id = @order_id;
+		IF @method <> 'Cash'
+			UPDATE dbo.Customer SET wallet_balance = wallet_balance + @refund WHERE customer_id = @customer_id;
+
+		-- Nothing was picked up, so every SubOrder ends up Cancelled and so does the order (BR-11).
+		UPDATE dbo.SubOrder SET status = 'Cancelled' WHERE order_id = @order_id AND status IN ('Placed', 'Assigned');
+		UPDATE dbo.Voucher SET status = 'Unused' WHERE voucher_id = (SELECT voucher_id FROM dbo.Orders WHERE order_id = @order_id);
+		UPDATE dbo.Orders SET status = 'Cancelled', voucher_id = NULL WHERE order_id = @order_id;
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+
+	RETURN 0;
+GO
+
+-- Mohand Essam (64-29300)
+CREATE PROCEDURE dbo.Reorder(
+	@order_id INT,
+	@address_id INT
+) AS
+	SET NOCOUNT ON;
+
+	IF @order_id IS NULL OR @address_id IS NULL
+		RETURN -1;
+
+	DECLARE @customer_id INT, @old_cart_id INT, @order_zone INT;
+	SELECT @customer_id = c.customer_id, @old_cart_id = c.cart_id, @order_zone = o.zone_id
+	FROM dbo.Orders o
+	JOIN dbo.Cart c ON c.cart_id = o.cart_id
+	WHERE o.order_id = @order_id;
+
+	DECLARE @address_customer INT, @address_zone INT;
+	SELECT @address_customer = customer_id, @address_zone = zone_id
+	FROM dbo.Address
+	WHERE address_id = @address_id;
+
+	IF @customer_id IS NULL OR @address_customer IS NULL
+		RETURN -1;
+	IF EXISTS (SELECT 1 FROM dbo.Users WHERE user_id = @customer_id AND account_status = 'Blacklisted')
+		RETURN -3;
+	IF @address_customer <> @customer_id
+		RETURN -3;
+	IF @address_zone <> @order_zone
+		RETURN -5;
+	IF EXISTS (SELECT 1 FROM dbo.Cart WHERE address_id = @address_id AND status = 'Active')
+		RETURN -2;
+	-- Only products that can still be ordered are copied (BR-5).
+	IF NOT EXISTS (
+		SELECT 1
+		FROM dbo.CartItem ci
+		JOIN dbo.Product p ON p.product_id = ci.product_id
+		JOIN dbo.Business b ON b.business_id = p.business_id
+		WHERE ci.cart_id = @old_cart_id AND p.is_available = 1 AND b.status = 'Active' AND b.zone_id = @address_zone
+	)
+		RETURN -9;
+
+	BEGIN TRY
+		BEGIN TRANSACTION;
+		-- The chosen address becomes the active one (BR-8).
+		UPDATE dbo.Address SET is_active = 0 WHERE customer_id = @customer_id AND address_id <> @address_id;
+		UPDATE dbo.Address SET is_active = 1 WHERE address_id = @address_id;
+
+		INSERT INTO dbo.Cart(status, created_at, customer_id, address_id)
+		VALUES ('Active', GETDATE(), @customer_id, @address_id);
+		DECLARE @new_cart_id INT = SCOPE_IDENTITY();
+
+		INSERT INTO dbo.CartItem(cart_id, product_id, quantity, notes, unit_price)
+		SELECT @new_cart_id, ci.product_id, ci.quantity, ci.notes, NULL
+		FROM dbo.CartItem ci
+		JOIN dbo.Product p ON p.product_id = ci.product_id
+		JOIN dbo.Business b ON b.business_id = p.business_id
+		WHERE ci.cart_id = @old_cart_id AND p.is_available = 1 AND b.status = 'Active' AND b.zone_id = @address_zone;
+		COMMIT TRANSACTION;
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRANSACTION;
+		RETURN -1;
+	END CATCH
+
+	RETURN 0;
+GO
 
 -- Farida Tarek (64-29168)
 CREATE PROCEDURE dbo.Submit_Feedback
@@ -1281,6 +2581,94 @@ BEGIN
 
     RETURN 0;
 END;
+GO
+
+-- Mohand Essam (64-29300)
+CREATE FUNCTION dbo.My_Order_History(
+	@customer_id INT
+) RETURNS TABLE AS RETURN
+	SELECT o.order_id,
+		o.order_date,
+		z.zone_name,
+		o.status,
+		(SELECT COUNT(*) FROM dbo.SubOrder s WHERE s.order_id = o.order_id) AS number_of_suborders,
+		o.discount_amount,
+		o.total_amount,
+		p.method AS payment_method,
+		p.refunded_amount
+	FROM dbo.Orders o
+	JOIN dbo.Cart c ON c.cart_id = o.cart_id
+	JOIN dbo.Zone z ON z.zone_id = o.zone_id
+	LEFT JOIN dbo.Payment p ON p.order_id = o.order_id
+	WHERE c.customer_id = @customer_id;
+GO
+
+-- Retag Atef (64-21789)
+CREATE PROCEDURE dbo.Toggle_Favorite
+	@customer_id INT,
+	@item_id INT,
+	@item_type VARCHAR(20)
+AS
+BEGIN
+	SET NOCOUNT ON;
+
+	IF @customer_id IS NULL OR @item_id IS NULL
+		OR @item_type IS NULL OR @item_type NOT IN ('Business', 'Product')
+		RETURN -1;
+
+	IF NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
+		RETURN -3;
+
+	IF @item_type = 'Business'
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM dbo.Business WHERE business_id = @item_id)
+			RETURN -1;
+
+		IF EXISTS (SELECT 1 FROM dbo.Favorite_Business WHERE customer_id = @customer_id AND business_id = @item_id)
+			DELETE FROM dbo.Favorite_Business
+			WHERE customer_id = @customer_id
+				AND business_id = @item_id;
+		ELSE
+			INSERT INTO dbo.Favorite_Business (customer_id, business_id)
+			VALUES (@customer_id, @item_id);
+	END
+	ELSE
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM dbo.Product WHERE product_id = @item_id)
+			RETURN -1;
+
+		IF EXISTS (SELECT 1 FROM dbo.Favorite_Product WHERE customer_id = @customer_id AND product_id = @item_id)
+			DELETE FROM dbo.Favorite_Product
+			WHERE customer_id = @customer_id
+				AND product_id = @item_id;
+		ELSE
+			INSERT INTO dbo.Favorite_Product (customer_id, product_id)
+			VALUES (@customer_id, @item_id);
+	END
+
+	RETURN 0;
+END
+GO
+
+-- Retag Atef (64-21789)
+CREATE FUNCTION dbo.My_Favorites
+(
+	@customer_id INT
+)
+RETURNS TABLE
+AS
+RETURN
+(
+	-- Favorite products only. A product can be ordered while it is available and its business is Active (BR-5).
+	SELECT p.product_id,
+		p.name AS product_name,
+		b.name AS business_name,
+		CAST(CASE WHEN p.is_available = 1 AND b.status = 'Active' THEN 1 ELSE 0 END AS BIT) AS is_orderable
+	FROM dbo.Favorite_Product fp
+	INNER JOIN dbo.Product p ON p.product_id = fp.product_id
+	INNER JOIN dbo.Business b ON b.business_id = p.business_id
+	WHERE fp.customer_id = @customer_id
+);
 GO
 
 -- Farida Tarek (64-29168)
@@ -1593,6 +2981,37 @@ GO
 -- Section 4.8: System-Level Requirements
 -- ============================================================================
 
+-- Retag Atef (64-21789)
+CREATE FUNCTION dbo.Search_Platform
+(
+	@customer_id INT,
+	@keyword VARCHAR(100)
+)
+RETURNS TABLE
+AS
+RETURN
+(
+	-- A function may only keep an ORDER BY together with TOP. CHARINDEX instead of LIKE so that
+	-- %, _ and [ in the keyword are matched literally.
+	SELECT TOP (2147483647)
+		b.business_id,
+		b.name AS business_name,
+		CASE
+			WHEN b.name = @keyword THEN 1
+			WHEN CHARINDEX(@keyword, b.name) = 1 THEN 2
+			ELSE 3
+		END AS priority
+	FROM dbo.Business b
+	INNER JOIN dbo.Address a
+		ON a.zone_id = b.zone_id
+		AND a.customer_id = @customer_id
+		AND a.is_active = 1
+	WHERE b.status = 'Active'
+		AND CHARINDEX(@keyword, b.name) > 0
+	ORDER BY priority, b.business_id
+);
+GO
+
 -- Farida Tarek (64-29168)
 CREATE FUNCTION dbo.Reconcile_Order_Totals ()
 RETURNS TABLE
@@ -1610,6 +3029,45 @@ RETURN
     HAVING o.total_amount <> ISNULL(SUM(s.total_price + s.delivery_fee), 0) - o.discount_amount
         OR p.amount IS NULL
         OR p.amount <> o.total_amount
+);
+GO
+
+-- Retag Atef (64-21789)
+CREATE FUNCTION dbo.Nearby_Businesses_By_Category
+(
+	@address_id INT,
+	@product_category VARCHAR(50)
+)
+RETURNS TABLE
+AS
+RETURN
+(
+	SELECT TOP (2147483647)
+		b.business_id,
+		b.name AS business_name,
+		z.zone_name,
+		CAST(CASE WHEN b.zone_id = a.zone_id THEN 1 ELSE 0 END AS BIT) AS same_zone,
+		(
+			SELECT CAST(AVG(CAST(d.tracking_time AS DECIMAL(10, 2))) AS DECIMAL(10, 2))
+			FROM dbo.Delivery d
+			INNER JOIN dbo.SubOrder s ON s.suborder_id = d.suborder_id
+			INNER JOIN dbo.Orders o ON o.order_id = s.order_id
+			WHERE o.zone_id = b.zone_id
+				AND s.status = 'Delivered'
+		) AS zone_avg_delivery_time
+	FROM dbo.Address a
+	CROSS JOIN dbo.Business b
+	INNER JOIN dbo.Zone z ON z.zone_id = b.zone_id
+	WHERE a.address_id = @address_id
+		AND b.status = 'Active'
+		AND EXISTS (
+			SELECT 1
+			FROM dbo.Product p
+			WHERE p.business_id = b.business_id
+				AND p.is_available = 1
+				AND p.category = @product_category
+		)
+	ORDER BY same_zone DESC, zone_avg_delivery_time, b.business_id
 );
 GO
 
