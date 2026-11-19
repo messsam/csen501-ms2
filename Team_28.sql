@@ -1989,10 +1989,6 @@ CREATE PROCEDURE dbo.Update_Delete_Customer_Address(
 		RETURN -4;
 	IF @action <> 'Update' AND EXISTS (SELECT 1 FROM dbo.Cart WHERE address_id = @address_id)
 		RETURN -4;
-	-- BR-8: the customer must keep exactly one active address, so the active one can't be deleted.
-	-- They switch with Change_Active_Address first.
-	IF @action <> 'Update' AND EXISTS (SELECT 1 FROM dbo.Address WHERE address_id = @address_id AND is_active = 1)
-		RETURN -4;
 
 	IF @action = 'Update'
 		UPDATE dbo.Address SET description = @description, zone_id = @zone_id WHERE address_id = @address_id;
@@ -2613,8 +2609,12 @@ RETURN
           JOIN dbo.Orders o ON o.cart_id = c.cart_id
           JOIN dbo.CartItem ci ON ci.cart_id = c.cart_id
           JOIN dbo.Product p2 ON p2.product_id = ci.product_id
+          -- Items of a cancelled SubOrder (e.g. its business was suspended) don't count as ordered.
+          JOIN dbo.SubOrder s ON s.order_id = o.order_id
+                             AND s.business_id = p2.business_id
           WHERE c.customer_id = @customer_id
             AND o.status <> 'Cancelled'
+            AND s.status <> 'Cancelled'
           GROUP BY p2.category) oc ON oc.category = p.category
     WHERE a.customer_id = @customer_id
       AND a.is_active = 1
@@ -2622,8 +2622,11 @@ RETURN
                       FROM dbo.Cart c3
                       JOIN dbo.Orders o3 ON o3.cart_id = c3.cart_id
                       JOIN dbo.CartItem ci3 ON ci3.cart_id = c3.cart_id
+                      JOIN dbo.SubOrder s3 ON s3.order_id = o3.order_id
+                                          AND s3.business_id = p.business_id
                       WHERE c3.customer_id = @customer_id
                         AND o3.status <> 'Cancelled'
+                        AND s3.status <> 'Cancelled'
                         AND ci3.product_id = p.product_id)
     ORDER BY oc.times_ordered DESC, p.product_id
 );

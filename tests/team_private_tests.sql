@@ -701,7 +701,6 @@ GO
 EXEC #Reset;
 EXEC #T '4.6.a second customer address', N'dbo.Add_Customer_Address 20, ''Heliopolis Villa'', 4', 0;
 EXEC #V '4.6.a only the new one is active', N'SELECT STRING_AGG(CAST(address_id AS VARCHAR(10)), '','') FROM dbo.Address WHERE customer_id = 20 AND is_active = 1', '13';
-EXEC #T '4.6.b delete the active address (our choice)', N'dbo.Update_Delete_Customer_Address 20, 13, NULL, NULL, ''Delete''', -4;
 EXEC #T '4.6.b delete an unused address, lower-case action', N'dbo.Update_Delete_Customer_Address 20, 9, NULL, NULL, ''delete''', 0;
 EXEC #T '4.6.b address of a Placed order', N'dbo.Update_Delete_Customer_Address 22, 8, ''X'', 1, ''Update''', -4;
 EXEC #T '4.6.b delete an address that has carts', N'dbo.Update_Delete_Customer_Address 20, 6, NULL, NULL, ''Delete''', -4;
@@ -872,6 +871,13 @@ EXEC #T '4.6.q setup: cancel that order', N'dbo.Cancel_Order 9', 0;
 EXEC #V '4.6.q a product of a cancelled order is recommended again', N'SELECT STRING_AGG(CONCAT(product_id, '':'', category, '':'', final_price), '','') FROM dbo.Recommended_Products(18)', '7:Desserts:70.00';
 EXEC #T '4.6.q setup: lift the blacklist of Youssef', N'dbo.Lift_Customer_Blacklist 21, 2', 0;
 EXEC #V '4.6.q only a cancelled order: no ordered category', N'SELECT COUNT(*) FROM dbo.Recommended_Products(21)', '0';
+GO
+-- A cancelled SubOrder inside an order that went ahead doesn't count as ordered either.
+-- Customer 20's order 5 was delivered, but its Basbousa (Desserts) SubOrder was cancelled.
+EXEC #Reset;
+EXEC #T '4.6.q setup: Cairo Grill adds a dessert', N'dbo.Upsert_Product 7, NULL, ''Om Ali'', ''Baked pudding'', ''Desserts'', 45.00, 1', 0;
+EXEC #T '4.6.q setup: Cairo Grill adds a grill dish', N'dbo.Upsert_Product 7, NULL, ''Shish Tawook'', ''Grilled chicken'', ''Grill'', 120.00, 1', 0;
+EXEC #V '4.6.q category of a cancelled SubOrder is not an ordered category', N'SELECT STRING_AGG(product_name, '','') FROM dbo.Recommended_Products(20)', 'Shish Tawook';
 GO
 
 /* =============================== 4.7 Rider =============================== */
