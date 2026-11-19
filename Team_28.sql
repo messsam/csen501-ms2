@@ -281,6 +281,7 @@ GO
 
 -- Youssef Maged (64-20178)
 CREATE PROCEDURE dbo.dropAllTables AS
+	-- Children before parents.
 	DROP TABLE IF EXISTS dbo.Feedback;
 	DROP TABLE IF EXISTS dbo.Payment;
 	DROP TABLE IF EXISTS dbo.Delivery;
@@ -342,55 +343,44 @@ AS
 BEGIN
 	SET NOCOUNT ON;
 
-	BEGIN TRY
-		BEGIN TRANSACTION;
+	-- Children before parents, the same order as dropAllTables.
+	DELETE FROM dbo.Feedback;
+	DELETE FROM dbo.Payment;
+	DELETE FROM dbo.Delivery;
+	DELETE FROM dbo.SubOrder;
+	DELETE FROM dbo.Orders;
+	DELETE FROM dbo.CartItem;
+	DELETE FROM dbo.Cart;
+	DELETE FROM dbo.Voucher;
+	DELETE FROM dbo.Favorite_Product;
+	DELETE FROM dbo.Favorite_Business;
+	DELETE FROM dbo.Product;
+	DELETE FROM dbo.Blacklist;
+	DELETE FROM dbo.Pharmacy;
+	DELETE FROM dbo.Restaurant;
+	DELETE FROM dbo.Business_Phone;
+	DELETE FROM dbo.Business;
+	DELETE FROM dbo.Card;
+	DELETE FROM dbo.Address;
+	DELETE FROM dbo.Customer;
+	DELETE FROM dbo.Rider;
+	DELETE FROM dbo.Partner;
+	DELETE FROM dbo.Admin;
+	DELETE FROM dbo.User_Phone;
+	DELETE FROM dbo.Users;
+	DELETE FROM dbo.Zone;
 
-		-- Children before parents, the same order as dropAllTables.
-		DELETE FROM dbo.Feedback;
-		DELETE FROM dbo.Payment;
-		DELETE FROM dbo.Delivery;
-		DELETE FROM dbo.SubOrder;
-		DELETE FROM dbo.Orders;
-		DELETE FROM dbo.CartItem;
-		DELETE FROM dbo.Cart;
-		DELETE FROM dbo.Voucher;
-		DELETE FROM dbo.Favorite_Product;
-		DELETE FROM dbo.Favorite_Business;
-		DELETE FROM dbo.Product;
-		DELETE FROM dbo.Blacklist;
-		DELETE FROM dbo.Pharmacy;
-		DELETE FROM dbo.Restaurant;
-		DELETE FROM dbo.Business_Phone;
-		DELETE FROM dbo.Business;
-		DELETE FROM dbo.Card;
-		DELETE FROM dbo.Address;
-		DELETE FROM dbo.Customer;
-		DELETE FROM dbo.Rider;
-		DELETE FROM dbo.Partner;
-		DELETE FROM dbo.Admin;
-		DELETE FROM dbo.User_Phone;
-		DELETE FROM dbo.Users;
-		DELETE FROM dbo.Zone;
+	-- RESEED 0 makes the next ID 1 only on a table that has had rows. On a table that never had
+	-- any it would make the next ID 0, so tables whose last_value is NULL are left alone.
+	DECLARE @sql NVARCHAR(MAX) = N'';
 
-		-- RESEED 0 makes the next ID 1 only on a table that has had rows. On a table that never had
-		-- any it would make the next ID 0, so tables whose last_value is NULL are left alone.
-		DECLARE @sql NVARCHAR(MAX) = N'';
+	SELECT @sql = @sql + N'DBCC CHECKIDENT (''dbo.' + t.name + N''', RESEED, 0) WITH NO_INFOMSGS; '
+	FROM sys.identity_columns ic
+	INNER JOIN sys.tables t ON t.object_id = ic.object_id
+	WHERE t.schema_id = SCHEMA_ID('dbo')
+		AND ic.last_value IS NOT NULL;
 
-		SELECT @sql = @sql + N'DBCC CHECKIDENT (''dbo.' + t.name + N''', RESEED, 0) WITH NO_INFOMSGS; '
-		FROM sys.identity_columns ic
-		INNER JOIN sys.tables t ON t.object_id = ic.object_id
-		WHERE t.schema_id = SCHEMA_ID('dbo')
-			AND ic.last_value IS NOT NULL;
-
-		EXEC sp_executesql @sql;
-
-		COMMIT TRANSACTION;
-	END TRY
-	BEGIN CATCH
-		IF @@TRANCOUNT > 0
-			ROLLBACK TRANSACTION;
-		RETURN -1;
-	END CATCH
+	EXEC sp_executesql @sql;
 
 	RETURN 0;
 END
@@ -402,6 +392,7 @@ GO
 
 -- ============================================================================
 -- Section 4.2: Basic Data Retrieval (Views)
+-- ============================================================================
 
 -- Retag Atef (64-21789)
 CREATE VIEW dbo.allBusinessProfiles AS
@@ -570,8 +561,6 @@ BEGIN
 		RETURN -2;
 	END
 
-	BEGIN TRANSACTION;
-
 	INSERT INTO dbo.Users (first_name, middle_name, last_name, username, password, email, dob, account_status)
 	VALUES (@first_name, @middle_name, @last_name, @username, @password, @email, @dob, 'Active');
 
@@ -583,7 +572,6 @@ BEGIN
 	INSERT INTO dbo.Customer (customer_id, wallet_balance)
 	VALUES (@new_user_id, 0);
 
-	COMMIT TRANSACTION;
 	RETURN 0;
 END
 GO
@@ -618,8 +606,6 @@ BEGIN
 		RETURN -2;
 	END
 
-	BEGIN TRANSACTION;
-
 	INSERT INTO dbo.Users (first_name, middle_name, last_name, username, password, email, dob, account_status)
 	VALUES (@first_name, @middle_name, @last_name, @username, @password, @email, @dob, 'Active');
 
@@ -631,7 +617,6 @@ BEGIN
 	INSERT INTO dbo.Partner (partner_id)
 	VALUES (@new_user_id);
 
-	COMMIT TRANSACTION;
 	RETURN 0;
 END
 GO
@@ -676,8 +661,6 @@ BEGIN
 		RETURN -2;
 	END
 
-	BEGIN TRANSACTION;
-
 	INSERT INTO dbo.Users (first_name, middle_name, last_name, username, password, email, dob, account_status)
 	VALUES (@first_name, @middle_name, @last_name, @username, @password, @email, @dob, 'Active');
 
@@ -689,7 +672,6 @@ BEGIN
 	INSERT INTO dbo.Rider (rider_id, vehicle_type, plate_no, license_no, is_available, zone_id)
 	VALUES (@new_user_id, @vehicle_type, @plate_no, @license_no, 1, @zone_id);
 
-	COMMIT TRANSACTION;
 	RETURN 0;
 END
 GO
@@ -711,7 +693,7 @@ BEGIN
 		FROM dbo.Users u
 		INNER JOIN dbo.Customer c ON u.user_id = c.customer_id
 		WHERE u.username = @username
-		  AND u.password = @password
+		  AND u.password = @password COLLATE Latin1_General_CS_AS -- case-sensitive
 		  AND u.account_status = 'Active'
 	)
 		RETURN 1;
@@ -737,7 +719,7 @@ BEGIN
 		FROM dbo.Users u
 		INNER JOIN dbo.Partner p ON u.user_id = p.partner_id
 		WHERE u.username = @username
-		  AND u.password = @password
+		  AND u.password = @password COLLATE Latin1_General_CS_AS -- case-sensitive
 		  AND u.account_status = 'Active'
 	)
 		RETURN 1;
@@ -763,7 +745,7 @@ BEGIN
 		FROM dbo.Users u
 		INNER JOIN dbo.Rider r ON u.user_id = r.rider_id
 		WHERE u.username = @username
-		  AND u.password = @password
+		  AND u.password = @password COLLATE Latin1_General_CS_AS -- case-sensitive
 		  AND u.account_status = 'Active'
 	)
 		RETURN 1;
@@ -789,7 +771,7 @@ BEGIN
 		FROM dbo.Users u
 		INNER JOIN dbo.Admin a ON u.user_id = a.admin_id
 		WHERE u.username = @username
-		  AND u.password = @password
+		  AND u.password = @password COLLATE Latin1_General_CS_AS -- case-sensitive
 		  AND u.account_status = 'Active'
 	)
 		RETURN 1;
@@ -814,7 +796,7 @@ BEGIN
 	   OR @old_password IS NULL
 	   OR @new_password IS NULL OR @new_password = ''
 	   OR @new_password_repeat IS NULL
-	   OR @new_password <> @new_password_repeat
+	   OR @new_password <> @new_password_repeat COLLATE Latin1_General_CS_AS -- case-sensitive
 	BEGIN
 		RETURN -1;
 	END
@@ -823,7 +805,7 @@ BEGIN
 		SELECT 1
 		FROM dbo.Users
 		WHERE user_id = @user_id
-		  AND password = @old_password
+		  AND password = @old_password COLLATE Latin1_General_CS_AS -- case-sensitive
 	)
 	BEGIN
 		RETURN -1;
@@ -872,7 +854,8 @@ BEGIN
 		RETURN -3;
 	END
 
-	DECLARE @effective_role VARCHAR(20) = ISNULL(@role, 'Super Admin');
+	-- NULL means Super Admin. Stored exactly as spelled in Section 2.3, whatever case the caller used.
+	DECLARE @effective_role VARCHAR(20) = CASE ISNULL(@role, 'Super Admin') WHEN 'Super Admin' THEN 'Super Admin' WHEN 'Zone Admin' THEN 'Zone Admin' END;
 
 	IF @first_name IS NULL OR @first_name = ''
 	   OR @last_name IS NULL OR @last_name = ''
@@ -881,7 +864,7 @@ BEGIN
 	   OR @email IS NULL OR @email = ''
 	   OR @phone IS NULL OR LEN(@phone) <> 11 OR @phone LIKE '%[^0-9]%'
 	   OR (@dob IS NOT NULL AND @dob > CAST(GETDATE() AS DATE))
-	   OR @effective_role NOT IN ('Super Admin', 'Zone Admin')
+	   OR @effective_role IS NULL
 	   OR (@effective_role = 'Super Admin' AND @zone_id IS NOT NULL)
 	   OR (@effective_role = 'Zone Admin' AND (@zone_id IS NULL OR NOT EXISTS (SELECT 1 FROM dbo.Zone WHERE zone_id = @zone_id)))
 	BEGIN
@@ -892,8 +875,6 @@ BEGIN
 	BEGIN
 		RETURN -2;
 	END
-
-	BEGIN TRANSACTION;
 
 	INSERT INTO dbo.Users (first_name, middle_name, last_name, username, password, email, dob, account_status)
 	VALUES (@first_name, @middle_name, @last_name, @username, @password, @email, @dob, 'Active');
@@ -906,7 +887,6 @@ BEGIN
 	INSERT INTO dbo.Admin (admin_id, role, zone_id)
 	VALUES (@new_user_id, @effective_role, @zone_id);
 
-	COMMIT TRANSACTION;
 	RETURN 0;
 END
 GO
@@ -1061,75 +1041,64 @@ BEGIN
 	WHERE s.business_id = @business_id
 		AND s.status IN ('Placed', 'Assigned');
 
-	BEGIN TRY
-		BEGIN TRANSACTION;
+	UPDATE dbo.Business
+	SET status = 'Suspended',
+		suspension_reason = @reason
+	WHERE business_id = @business_id;
 
-		UPDATE dbo.Business
-		SET status = 'Suspended',
-			suspension_reason = @reason
-		WHERE business_id = @business_id;
+	UPDATE dbo.Product
+	SET is_available = 0
+	WHERE business_id = @business_id;
 
-		UPDATE dbo.Product
-		SET is_available = 0
-		WHERE business_id = @business_id;
+	UPDATE p
+	SET refunded_amount = p.refunded_amount + x.refund
+	FROM dbo.Payment p
+	INNER JOIN @cancelled x ON x.order_id = p.order_id;
 
-		UPDATE p
-		SET refunded_amount = p.refunded_amount + x.refund
-		FROM dbo.Payment p
-		INNER JOIN @cancelled x ON x.order_id = p.order_id;
+	-- Refunds go to the wallet unless the order was paid in cash. A customer can have several
+	-- affected orders, so the refunds are added up per customer first.
+	UPDATE cu
+	SET wallet_balance = cu.wallet_balance + x.refund
+	FROM dbo.Customer cu
+	INNER JOIN (
+		SELECT customer_id, SUM(refund) AS refund
+		FROM @cancelled
+		WHERE method <> 'Cash'
+		GROUP BY customer_id
+	) x ON x.customer_id = cu.customer_id;
 
-		-- Refunds go to the wallet unless the order was paid in cash. A customer can have several
-		-- affected orders, so the refunds are added up per customer first.
-		UPDATE cu
-		SET wallet_balance = cu.wallet_balance + x.refund
-		FROM dbo.Customer cu
-		INNER JOIN (
-			SELECT customer_id, SUM(refund) AS refund
-			FROM @cancelled
-			WHERE method <> 'Cash'
-			GROUP BY customer_id
-		) x ON x.customer_id = cu.customer_id;
+	UPDATE dbo.SubOrder
+	SET status = 'Cancelled'
+	WHERE suborder_id IN (SELECT suborder_id FROM @cancelled);
 
-		UPDATE dbo.SubOrder
-		SET status = 'Cancelled'
-		WHERE suborder_id IN (SELECT suborder_id FROM @cancelled);
+	-- BR-11: recompute the status of every affected order.
+	UPDATE o
+	SET status = CASE
+		WHEN NOT EXISTS (SELECT 1 FROM dbo.SubOrder s WHERE s.order_id = o.order_id AND s.status <> 'Cancelled')
+			THEN 'Cancelled'
+		WHEN NOT EXISTS (SELECT 1 FROM dbo.SubOrder s WHERE s.order_id = o.order_id AND s.status NOT IN ('Cancelled', 'Delivered'))
+			THEN 'Delivered'
+		WHEN EXISTS (SELECT 1 FROM dbo.SubOrder s WHERE s.order_id = o.order_id AND s.status IN ('Picked Up', 'Delivered'))
+			THEN 'In Progress'
+		ELSE 'Placed'
+	END
+	FROM dbo.Orders o
+	WHERE o.order_id IN (SELECT order_id FROM @cancelled);
 
-		-- BR-11: recompute the status of every affected order.
-		UPDATE o
-		SET status = CASE
-			WHEN NOT EXISTS (SELECT 1 FROM dbo.SubOrder s WHERE s.order_id = o.order_id AND s.status <> 'Cancelled')
-				THEN 'Cancelled'
-			WHEN NOT EXISTS (SELECT 1 FROM dbo.SubOrder s WHERE s.order_id = o.order_id AND s.status NOT IN ('Cancelled', 'Delivered'))
-				THEN 'Delivered'
-			WHEN EXISTS (SELECT 1 FROM dbo.SubOrder s WHERE s.order_id = o.order_id AND s.status IN ('Picked Up', 'Delivered'))
-				THEN 'In Progress'
-			ELSE 'Placed'
-		END
-		FROM dbo.Orders o
-		WHERE o.order_id IN (SELECT order_id FROM @cancelled);
-
-		-- An order that is now cancelled entirely gets its voucher back, as in Cancel_Order.
-		UPDATE dbo.Voucher
-		SET status = 'Unused'
-		WHERE voucher_id IN (
-			SELECT voucher_id
-			FROM dbo.Orders
-			WHERE status = 'Cancelled'
-				AND order_id IN (SELECT order_id FROM @cancelled)
-		);
-
-		UPDATE dbo.Orders
-		SET voucher_id = NULL
+	-- An order that is now cancelled entirely gets its voucher back, as in Cancel_Order.
+	UPDATE dbo.Voucher
+	SET status = 'Unused'
+	WHERE voucher_id IN (
+		SELECT voucher_id
+		FROM dbo.Orders
 		WHERE status = 'Cancelled'
-			AND order_id IN (SELECT order_id FROM @cancelled);
+			AND order_id IN (SELECT order_id FROM @cancelled)
+	);
 
-		COMMIT TRANSACTION;
-	END TRY
-	BEGIN CATCH
-		IF @@TRANCOUNT > 0
-			ROLLBACK TRANSACTION;
-		RETURN -1;
-	END CATCH
+	UPDATE dbo.Orders
+	SET voucher_id = NULL
+	WHERE status = 'Cancelled'
+		AND order_id IN (SELECT order_id FROM @cancelled);
 
 	RETURN 0;
 END
@@ -1391,8 +1360,6 @@ BEGIN
 		RETURN -3;
 	END
 
-	BEGIN TRANSACTION;
-
 	UPDATE dbo.Users
 	SET account_status = 'Blacklisted'
 	WHERE user_id = @customer_id;
@@ -1498,7 +1465,6 @@ BEGIN
 	WHERE customer_id = @customer_id
 	  AND status = 'Unused';
 
-	COMMIT TRANSACTION;
 	RETURN 0;
 END
 GO
@@ -1549,8 +1515,6 @@ BEGIN
 		RETURN -3;
 	END
 
-	BEGIN TRANSACTION;
-
 	DELETE FROM dbo.Blacklist
 	WHERE customer_id = @customer_id;
 
@@ -1558,7 +1522,6 @@ BEGIN
 	SET account_status = 'Active'
 	WHERE user_id = @customer_id;
 
-	COMMIT TRANSACTION;
 	RETURN 0;
 END
 GO
@@ -1720,55 +1683,44 @@ BEGIN
 	IF @business_id IS NOT NULL AND @status <> 'Rejected'
 		RETURN -2;
 
-	BEGIN TRY
-		BEGIN TRANSACTION;
+	IF @business_id IS NULL
+	BEGIN
+		INSERT INTO dbo.Business (name, description, link_website, opening_hour, closing_hour,
+			expected_delivery_time, status, suspension_reason, partner_id, zone_id)
+		VALUES (@name, @description, @link_website, @opening_hour, @closing_hour,
+			@expected_delivery_time, 'Pending', NULL, @partner_id, @zone_id);
 
-		IF @business_id IS NULL
-		BEGIN
-			INSERT INTO dbo.Business (name, description, link_website, opening_hour, closing_hour,
-				expected_delivery_time, status, suspension_reason, partner_id, zone_id)
-			VALUES (@name, @description, @link_website, @opening_hour, @closing_hour,
-				@expected_delivery_time, 'Pending', NULL, @partner_id, @zone_id);
+		SET @business_id = SCOPE_IDENTITY();
+	END
+	ELSE
+	BEGIN
+		-- Registering a Rejected business again reuses its row: new data, phones and subtype, back to Pending.
+		UPDATE dbo.Business
+		SET name = @name,
+			description = @description,
+			link_website = @link_website,
+			opening_hour = @opening_hour,
+			closing_hour = @closing_hour,
+			expected_delivery_time = @expected_delivery_time,
+			status = 'Pending',
+			suspension_reason = NULL,
+			zone_id = @zone_id
+		WHERE business_id = @business_id;
 
-			SET @business_id = SCOPE_IDENTITY();
-		END
-		ELSE
-		BEGIN
-			-- Registering a Rejected business again reuses its row: new data, phones and subtype, back to Pending.
-			UPDATE dbo.Business
-			SET name = @name,
-				description = @description,
-				link_website = @link_website,
-				opening_hour = @opening_hour,
-				closing_hour = @closing_hour,
-				expected_delivery_time = @expected_delivery_time,
-				status = 'Pending',
-				suspension_reason = NULL,
-				zone_id = @zone_id
-			WHERE business_id = @business_id;
+		DELETE FROM dbo.Business_Phone WHERE business_id = @business_id;
+		DELETE FROM dbo.Restaurant WHERE business_id = @business_id;
+		DELETE FROM dbo.Pharmacy WHERE business_id = @business_id;
+	END
 
-			DELETE FROM dbo.Business_Phone WHERE business_id = @business_id;
-			DELETE FROM dbo.Restaurant WHERE business_id = @business_id;
-			DELETE FROM dbo.Pharmacy WHERE business_id = @business_id;
-		END
+	INSERT INTO dbo.Business_Phone (business_id, phone)
+	VALUES (@business_id, @phone);
 
-		INSERT INTO dbo.Business_Phone (business_id, phone)
-		VALUES (@business_id, @phone);
-
-		IF @business_type = 'Restaurant'
-			INSERT INTO dbo.Restaurant (business_id, cuisine_type, food_category)
-			VALUES (@business_id, @cuisine_type, @food_category);
-		ELSE
-			INSERT INTO dbo.Pharmacy (business_id, pharmacy_type)
-			VALUES (@business_id, @pharmacy_type);
-
-		COMMIT TRANSACTION;
-	END TRY
-	BEGIN CATCH
-		IF @@TRANCOUNT > 0
-			ROLLBACK TRANSACTION;
-		RETURN -1;
-	END CATCH
+	IF @business_type = 'Restaurant'
+		INSERT INTO dbo.Restaurant (business_id, cuisine_type, food_category)
+		VALUES (@business_id, @cuisine_type, @food_category);
+	ELSE
+		INSERT INTO dbo.Pharmacy (business_id, pharmacy_type)
+		VALUES (@business_id, @pharmacy_type);
 
 	RETURN 0;
 END
@@ -1794,27 +1746,16 @@ BEGIN
 	IF EXISTS (SELECT 1 FROM dbo.Business_Phone WHERE business_id = @business_id AND phone = @phone)
 		RETURN -2;
 
-	BEGIN TRY
-		BEGIN TRANSACTION;
+	UPDATE dbo.Business
+	SET opening_hour = @opening_hour,
+		closing_hour = @closing_hour,
+		link_website = @link_website
+	WHERE business_id = @business_id;
 
-		UPDATE dbo.Business
-		SET opening_hour = @opening_hour,
-			closing_hour = @closing_hour,
-			link_website = @link_website
-		WHERE business_id = @business_id;
-
-		-- The phone is optional: with NULL only the hours and the website change.
-		IF @phone IS NOT NULL
-			INSERT INTO dbo.Business_Phone (business_id, phone)
-			VALUES (@business_id, @phone);
-
-		COMMIT TRANSACTION;
-	END TRY
-	BEGIN CATCH
-		IF @@TRANCOUNT > 0
-			ROLLBACK TRANSACTION;
-		RETURN -1;
-	END CATCH
+	-- The phone is optional: with NULL only the hours and the website change.
+	IF @phone IS NOT NULL
+		INSERT INTO dbo.Business_Phone (business_id, phone)
+		VALUES (@business_id, @phone);
 
 	RETURN 0;
 END
@@ -1992,18 +1933,9 @@ CREATE PROCEDURE dbo.Add_Customer_Address(
 	IF NOT EXISTS (SELECT 1 FROM dbo.Customer WHERE customer_id = @customer_id)
 		RETURN -3;
 
-	BEGIN TRY
-		BEGIN TRANSACTION;
-		UPDATE dbo.Address SET is_active = 0 WHERE customer_id = @customer_id;
-		INSERT INTO dbo.Address(description, is_active, customer_id, zone_id)
-		VALUES (@description, 1, @customer_id, @zone_id);
-		COMMIT TRANSACTION;
-	END TRY
-	BEGIN CATCH
-		IF @@TRANCOUNT > 0
-			ROLLBACK TRANSACTION;
-		RETURN -1;
-	END CATCH
+	UPDATE dbo.Address SET is_active = 0 WHERE customer_id = @customer_id;
+	INSERT INTO dbo.Address(description, is_active, customer_id, zone_id)
+	VALUES (@description, 1, @customer_id, @zone_id);
 
 	RETURN 0;
 GO
@@ -2018,7 +1950,8 @@ CREATE PROCEDURE dbo.Update_Delete_Customer_Address(
 ) AS
 	SET NOCOUNT ON;
 
-	IF @customer_id IS NULL OR @address_id IS NULL OR @action IS NULL OR @action NOT IN ('Update', 'Delete')
+	-- The public tests call the delete action 'Delete'; Section 2.3 calls it 'Remove'. Both are accepted.
+	IF @customer_id IS NULL OR @address_id IS NULL OR @action IS NULL OR @action NOT IN ('Update', 'Delete', 'Remove')
 		RETURN -1;
 	IF @action = 'Update' AND (@description IS NULL OR @description = '' OR NOT EXISTS (SELECT 1 FROM dbo.Zone WHERE zone_id = @zone_id))
 		RETURN -1;
@@ -2033,7 +1966,7 @@ CREATE PROCEDURE dbo.Update_Delete_Customer_Address(
 		WHERE c.address_id = @address_id AND o.status IN ('Placed', 'In Progress')
 	)
 		RETURN -4;
-	IF @action = 'Delete' AND EXISTS (SELECT 1 FROM dbo.Cart WHERE address_id = @address_id)
+	IF @action <> 'Update' AND EXISTS (SELECT 1 FROM dbo.Cart WHERE address_id = @address_id)
 		RETURN -4;
 
 	IF @action = 'Update'
@@ -2059,17 +1992,8 @@ CREATE PROCEDURE dbo.Change_Active_Address(
 		RETURN -3;
 
 	-- Carts of the other addresses stay as they are; they can be used again once their address is active.
-	BEGIN TRY
-		BEGIN TRANSACTION;
-		UPDATE dbo.Address SET is_active = 0 WHERE customer_id = @customer_id AND address_id <> @new_address_id;
-		UPDATE dbo.Address SET is_active = 1 WHERE address_id = @new_address_id;
-		COMMIT TRANSACTION;
-	END TRY
-	BEGIN CATCH
-		IF @@TRANCOUNT > 0
-			ROLLBACK TRANSACTION;
-		RETURN -1;
-	END CATCH
+	UPDATE dbo.Address SET is_active = 0 WHERE customer_id = @customer_id AND address_id <> @new_address_id;
+	UPDATE dbo.Address SET is_active = 1 WHERE address_id = @new_address_id;
 
 	RETURN 0;
 GO
@@ -2329,69 +2253,58 @@ CREATE PROCEDURE dbo.Checkout_Cart(
 	)
 		RETURN -8;
 
-	BEGIN TRY
-		BEGIN TRANSACTION;
+	UPDATE ci
+	SET unit_price = p.price - p.discount_amount
+	FROM dbo.CartItem ci
+	JOIN dbo.Product p ON p.product_id = ci.product_id
+	WHERE ci.cart_id = @cart_id;
 
-		UPDATE ci
-		SET unit_price = p.price - p.discount_amount
-		FROM dbo.CartItem ci
-		JOIN dbo.Product p ON p.product_id = ci.product_id
-		WHERE ci.cart_id = @cart_id;
+	INSERT INTO dbo.Orders(order_date, status, discount_amount, total_amount, cart_id, zone_id, voucher_id)
+	VALUES (@now, 'Placed', @discount, @total, @cart_id, @zone_id, @voucher_id);
+	DECLARE @order_id INT = SCOPE_IDENTITY();
 
-		INSERT INTO dbo.Orders(order_date, status, discount_amount, total_amount, cart_id, zone_id, voucher_id)
-		VALUES (@now, 'Placed', @discount, @total, @cart_id, @zone_id, @voucher_id);
-		DECLARE @order_id INT = SCOPE_IDENTITY();
+	-- ORDER BY fixes the identity order, so SubOrders are numbered in business order.
+	INSERT INTO dbo.SubOrder(status, total_price, delivery_fee, order_id, business_id)
+	SELECT 'Placed', SUM(ci.quantity * ci.unit_price), @delivery_fee, @order_id, p.business_id
+	FROM dbo.CartItem ci
+	JOIN dbo.Product p ON p.product_id = ci.product_id
+	WHERE ci.cart_id = @cart_id
+	GROUP BY p.business_id
+	ORDER BY p.business_id;
 
-		-- ORDER BY fixes the identity order, so SubOrders are numbered in business order.
-		INSERT INTO dbo.SubOrder(status, total_price, delivery_fee, order_id, business_id)
-		SELECT 'Placed', SUM(ci.quantity * ci.unit_price), @delivery_fee, @order_id, p.business_id
-		FROM dbo.CartItem ci
-		JOIN dbo.Product p ON p.product_id = ci.product_id
-		WHERE ci.cart_id = @cart_id
-		GROUP BY p.business_id
-		ORDER BY p.business_id;
+	-- BR-12: each SubOrder goes to the least-busy available rider of the zone (ties: smallest rider_id).
+	-- One SubOrder at a time, so every assignment counts when choosing the rider of the next one.
+	DECLARE @rider_id INT;
+	DECLARE @suborder_id INT = (SELECT MIN(suborder_id) FROM dbo.SubOrder WHERE order_id = @order_id);
+	WHILE @suborder_id IS NOT NULL
+	BEGIN
+		SELECT TOP 1 @rider_id = r.rider_id
+		FROM dbo.Rider r
+		JOIN dbo.Users u ON u.user_id = r.rider_id
+		WHERE r.zone_id = @zone_id AND r.is_available = 1 AND u.account_status = 'Active'
+		ORDER BY (
+			SELECT COUNT(*)
+			FROM dbo.Delivery d
+			JOIN dbo.SubOrder s ON s.suborder_id = d.suborder_id
+			WHERE d.rider_id = r.rider_id AND s.status IN ('Assigned', 'Picked Up')
+		), r.rider_id;
 
-		-- BR-12: each SubOrder goes to the least-busy available rider of the zone (ties: smallest rider_id).
-		-- One SubOrder at a time, so every assignment counts when choosing the rider of the next one.
-		DECLARE @rider_id INT;
-		DECLARE @suborder_id INT = (SELECT MIN(suborder_id) FROM dbo.SubOrder WHERE order_id = @order_id);
-		WHILE @suborder_id IS NOT NULL
-		BEGIN
-			SELECT TOP 1 @rider_id = r.rider_id
-			FROM dbo.Rider r
-			JOIN dbo.Users u ON u.user_id = r.rider_id
-			WHERE r.zone_id = @zone_id AND r.is_available = 1 AND u.account_status = 'Active'
-			ORDER BY (
-				SELECT COUNT(*)
-				FROM dbo.Delivery d
-				JOIN dbo.SubOrder s ON s.suborder_id = d.suborder_id
-				WHERE d.rider_id = r.rider_id AND s.status IN ('Assigned', 'Picked Up')
-			), r.rider_id;
+		INSERT INTO dbo.Delivery(assigned_at, suborder_id, rider_id)
+		VALUES (@now, @suborder_id, @rider_id);
+		UPDATE dbo.SubOrder SET status = 'Assigned' WHERE suborder_id = @suborder_id;
 
-			INSERT INTO dbo.Delivery(assigned_at, suborder_id, rider_id)
-			VALUES (@now, @suborder_id, @rider_id);
-			UPDATE dbo.SubOrder SET status = 'Assigned' WHERE suborder_id = @suborder_id;
+		SET @suborder_id = (SELECT MIN(suborder_id) FROM dbo.SubOrder WHERE order_id = @order_id AND suborder_id > @suborder_id);
+	END
 
-			SET @suborder_id = (SELECT MIN(suborder_id) FROM dbo.SubOrder WHERE order_id = @order_id AND suborder_id > @suborder_id);
-		END
+	UPDATE dbo.Voucher SET status = 'Used' WHERE voucher_id = @voucher_id;
 
-		UPDATE dbo.Voucher SET status = 'Used' WHERE voucher_id = @voucher_id;
+	INSERT INTO dbo.Payment(amount, currency, method, transaction_date, refunded_amount, order_id, card_id)
+	VALUES (@total, 'EGP', @payment_method, @now, 0, @order_id, CASE WHEN @payment_method = 'Card' THEN @card_id END);
 
-		INSERT INTO dbo.Payment(amount, currency, method, transaction_date, refunded_amount, order_id, card_id)
-		VALUES (@total, 'EGP', @payment_method, @now, 0, @order_id, CASE WHEN @payment_method = 'Card' THEN @card_id END);
+	IF @payment_method = 'Wallet'
+		UPDATE dbo.Customer SET wallet_balance = wallet_balance - @total WHERE customer_id = @customer_id;
 
-		IF @payment_method = 'Wallet'
-			UPDATE dbo.Customer SET wallet_balance = wallet_balance - @total WHERE customer_id = @customer_id;
-
-		UPDATE dbo.Cart SET status = 'Checked Out' WHERE cart_id = @cart_id;
-
-		COMMIT TRANSACTION;
-	END TRY
-	BEGIN CATCH
-		IF @@TRANCOUNT > 0
-			ROLLBACK TRANSACTION;
-		RETURN -1;
-	END CATCH
+	UPDATE dbo.Cart SET status = 'Checked Out' WHERE cart_id = @cart_id;
 
 	RETURN 0;
 GO
@@ -2419,23 +2332,14 @@ CREATE PROCEDURE dbo.Cancel_Order(
 	LEFT JOIN dbo.Payment p ON p.order_id = o.order_id
 	WHERE o.order_id = @order_id;
 
-	BEGIN TRY
-		BEGIN TRANSACTION;
-		UPDATE dbo.Payment SET refunded_amount = amount WHERE order_id = @order_id;
-		IF @method <> 'Cash'
-			UPDATE dbo.Customer SET wallet_balance = wallet_balance + @refund WHERE customer_id = @customer_id;
+	UPDATE dbo.Payment SET refunded_amount = amount WHERE order_id = @order_id;
+	IF @method <> 'Cash'
+		UPDATE dbo.Customer SET wallet_balance = wallet_balance + @refund WHERE customer_id = @customer_id;
 
-		-- Nothing was picked up, so every SubOrder ends up Cancelled and so does the order (BR-11).
-		UPDATE dbo.SubOrder SET status = 'Cancelled' WHERE order_id = @order_id AND status IN ('Placed', 'Assigned');
-		UPDATE dbo.Voucher SET status = 'Unused' WHERE voucher_id = (SELECT voucher_id FROM dbo.Orders WHERE order_id = @order_id);
-		UPDATE dbo.Orders SET status = 'Cancelled', voucher_id = NULL WHERE order_id = @order_id;
-		COMMIT TRANSACTION;
-	END TRY
-	BEGIN CATCH
-		IF @@TRANCOUNT > 0
-			ROLLBACK TRANSACTION;
-		RETURN -1;
-	END CATCH
+	-- Nothing was picked up, so every SubOrder ends up Cancelled and so does the order (BR-11).
+	UPDATE dbo.SubOrder SET status = 'Cancelled' WHERE order_id = @order_id AND status IN ('Placed', 'Assigned');
+	UPDATE dbo.Voucher SET status = 'Unused' WHERE voucher_id = (SELECT voucher_id FROM dbo.Orders WHERE order_id = @order_id);
+	UPDATE dbo.Orders SET status = 'Cancelled', voucher_id = NULL WHERE order_id = @order_id;
 
 	RETURN 0;
 GO
@@ -2481,29 +2385,20 @@ CREATE PROCEDURE dbo.Reorder(
 	)
 		RETURN -9;
 
-	BEGIN TRY
-		BEGIN TRANSACTION;
-		-- The chosen address becomes the active one (BR-8).
-		UPDATE dbo.Address SET is_active = 0 WHERE customer_id = @customer_id AND address_id <> @address_id;
-		UPDATE dbo.Address SET is_active = 1 WHERE address_id = @address_id;
+	-- The chosen address becomes the active one (BR-8).
+	UPDATE dbo.Address SET is_active = 0 WHERE customer_id = @customer_id AND address_id <> @address_id;
+	UPDATE dbo.Address SET is_active = 1 WHERE address_id = @address_id;
 
-		INSERT INTO dbo.Cart(status, created_at, customer_id, address_id)
-		VALUES ('Active', GETDATE(), @customer_id, @address_id);
-		DECLARE @new_cart_id INT = SCOPE_IDENTITY();
+	INSERT INTO dbo.Cart(status, created_at, customer_id, address_id)
+	VALUES ('Active', GETDATE(), @customer_id, @address_id);
+	DECLARE @new_cart_id INT = SCOPE_IDENTITY();
 
-		INSERT INTO dbo.CartItem(cart_id, product_id, quantity, notes, unit_price)
-		SELECT @new_cart_id, ci.product_id, ci.quantity, ci.notes, NULL
-		FROM dbo.CartItem ci
-		JOIN dbo.Product p ON p.product_id = ci.product_id
-		JOIN dbo.Business b ON b.business_id = p.business_id
-		WHERE ci.cart_id = @old_cart_id AND p.is_available = 1 AND b.status = 'Active' AND b.zone_id = @address_zone;
-		COMMIT TRANSACTION;
-	END TRY
-	BEGIN CATCH
-		IF @@TRANCOUNT > 0
-			ROLLBACK TRANSACTION;
-		RETURN -1;
-	END CATCH
+	INSERT INTO dbo.CartItem(cart_id, product_id, quantity, notes, unit_price)
+	SELECT @new_cart_id, ci.product_id, ci.quantity, ci.notes, NULL
+	FROM dbo.CartItem ci
+	JOIN dbo.Product p ON p.product_id = ci.product_id
+	JOIN dbo.Business b ON b.business_id = p.business_id
+	WHERE ci.cart_id = @old_cart_id AND p.is_available = 1 AND b.status = 'Active' AND b.zone_id = @address_zone;
 
 	RETURN 0;
 GO
@@ -2694,6 +2589,7 @@ RETURN
           JOIN dbo.CartItem ci ON ci.cart_id = c.cart_id
           JOIN dbo.Product p2 ON p2.product_id = ci.product_id
           WHERE c.customer_id = @customer_id
+            AND o.status <> 'Cancelled'
           GROUP BY p2.category) oc ON oc.category = p.category
     WHERE a.customer_id = @customer_id
       AND a.is_active = 1
@@ -2702,6 +2598,7 @@ RETURN
                       JOIN dbo.Orders o3 ON o3.cart_id = c3.cart_id
                       JOIN dbo.CartItem ci3 ON ci3.cart_id = c3.cart_id
                       WHERE c3.customer_id = @customer_id
+                        AND o3.status <> 'Cancelled'
                         AND ci3.product_id = p.product_id)
     ORDER BY oc.times_ordered DESC, p.product_id
 );
@@ -2788,45 +2685,35 @@ BEGIN
     IF @status <> 'Assigned'
         RETURN -4;
 
-    BEGIN TRY
-        BEGIN TRANSACTION;
+    UPDATE dbo.SubOrder
+    SET status = 'Picked Up'
+    WHERE suborder_id = @suborder_id;
 
-        UPDATE dbo.SubOrder
-        SET status = 'Picked Up'
-        WHERE suborder_id = @suborder_id;
+    UPDATE dbo.Delivery
+    SET picked_up_at = GETDATE()
+    WHERE delivery_id = @delivery_id;
 
-        UPDATE dbo.Delivery
-        SET picked_up_at = GETDATE()
-        WHERE delivery_id = @delivery_id;
+    SELECT @total = COUNT(*),
+           @cancelled = COUNT(CASE WHEN status = 'Cancelled' THEN 1 END),
+           @delivered = COUNT(CASE WHEN status = 'Delivered' THEN 1 END),
+           @moving = COUNT(CASE WHEN status IN ('Picked Up', 'Delivered') THEN 1 END)
+    FROM dbo.SubOrder
+    WHERE order_id = @order_id;
 
-        SELECT @total = COUNT(*),
-               @cancelled = COUNT(CASE WHEN status = 'Cancelled' THEN 1 END),
-               @delivered = COUNT(CASE WHEN status = 'Delivered' THEN 1 END),
-               @moving = COUNT(CASE WHEN status IN ('Picked Up', 'Delivered') THEN 1 END)
-        FROM dbo.SubOrder
-        WHERE order_id = @order_id;
+    IF @cancelled = @total
+        SET @new_status = 'Cancelled';
+    ELSE IF @delivered = @total - @cancelled
+        SET @new_status = 'Delivered';
+    ELSE IF @moving > 0
+        SET @new_status = 'In Progress';
+    ELSE
+        SET @new_status = 'Placed';
 
-        IF @cancelled = @total
-            SET @new_status = 'Cancelled';
-        ELSE IF @delivered = @total - @cancelled
-            SET @new_status = 'Delivered';
-        ELSE IF @moving > 0
-            SET @new_status = 'In Progress';
-        ELSE
-            SET @new_status = 'Placed';
+    UPDATE dbo.Orders
+    SET status = @new_status
+    WHERE order_id = @order_id;
 
-        UPDATE dbo.Orders
-        SET status = @new_status
-        WHERE order_id = @order_id;
-
-        COMMIT TRANSACTION;
-        RETURN 0;
-    END TRY
-    BEGIN CATCH
-        IF @@TRANCOUNT > 0
-            ROLLBACK TRANSACTION;
-        RETURN -1;
-    END CATCH
+    RETURN 0;
 END;
 GO
 
@@ -2858,46 +2745,36 @@ BEGIN
     IF @status <> 'Picked Up'
         RETURN -4;
 
-    BEGIN TRY
-        BEGIN TRANSACTION;
+    UPDATE dbo.SubOrder
+    SET status = 'Delivered'
+    WHERE suborder_id = @suborder_id;
 
-        UPDATE dbo.SubOrder
-        SET status = 'Delivered'
-        WHERE suborder_id = @suborder_id;
+    UPDATE dbo.Delivery
+    SET delivered_at = @now,
+        tracking_time = DATEDIFF(MINUTE, picked_up_at, @now)
+    WHERE delivery_id = @delivery_id;
 
-        UPDATE dbo.Delivery
-        SET delivered_at = @now,
-            tracking_time = DATEDIFF(MINUTE, picked_up_at, @now)
-        WHERE delivery_id = @delivery_id;
+    SELECT @total = COUNT(*),
+           @cancelled = COUNT(CASE WHEN status = 'Cancelled' THEN 1 END),
+           @delivered = COUNT(CASE WHEN status = 'Delivered' THEN 1 END),
+           @moving = COUNT(CASE WHEN status IN ('Picked Up', 'Delivered') THEN 1 END)
+    FROM dbo.SubOrder
+    WHERE order_id = @order_id;
 
-        SELECT @total = COUNT(*),
-               @cancelled = COUNT(CASE WHEN status = 'Cancelled' THEN 1 END),
-               @delivered = COUNT(CASE WHEN status = 'Delivered' THEN 1 END),
-               @moving = COUNT(CASE WHEN status IN ('Picked Up', 'Delivered') THEN 1 END)
-        FROM dbo.SubOrder
-        WHERE order_id = @order_id;
+    IF @cancelled = @total
+        SET @new_status = 'Cancelled';
+    ELSE IF @delivered = @total - @cancelled
+        SET @new_status = 'Delivered';
+    ELSE IF @moving > 0
+        SET @new_status = 'In Progress';
+    ELSE
+        SET @new_status = 'Placed';
 
-        IF @cancelled = @total
-            SET @new_status = 'Cancelled';
-        ELSE IF @delivered = @total - @cancelled
-            SET @new_status = 'Delivered';
-        ELSE IF @moving > 0
-            SET @new_status = 'In Progress';
-        ELSE
-            SET @new_status = 'Placed';
+    UPDATE dbo.Orders
+    SET status = @new_status
+    WHERE order_id = @order_id;
 
-        UPDATE dbo.Orders
-        SET status = @new_status
-        WHERE order_id = @order_id;
-
-        COMMIT TRANSACTION;
-        RETURN 0;
-    END TRY
-    BEGIN CATCH
-        IF @@TRANCOUNT > 0
-            ROLLBACK TRANSACTION;
-        RETURN -1;
-    END CATCH
+    RETURN 0;
 END;
 GO
 

@@ -22,9 +22,10 @@ That markdown is a complete transcription of the original assignment PDF, [docs/
   ```
   If you don't know which team member an item belongs to, ask. Don't guess.
 - Follow names, column order, types, parameter order and output column order exactly. Don't add extra tables or columns.
-- Status and type columns hold only the values in spec Section 2.3.
+- Status and type columns hold only the values in spec Section 2.3. The tables have only the CHECKs of Appendix A, so procedures enforce the lists: a value taken from a parameter is checked with `NOT IN (...)` → -1, and a stored one is stored exactly as spelled in Section 2.3 (see `Checkout_Cart`'s payment method and `Create_Admin`'s role).
 - Stored procedures `RETURN 0` on success, or an error code from spec Section 2.4 (-1 to -9). Scalar int/decimal functions return the negative code. Login functions return 0 on any error. Table-valued functions return an empty table on any error.
-- On rejection or invalid input, leave the database unchanged. Procedures that change more than one row or table use a transaction. Report errors only with `RETURN <code>`, never `RAISERROR`/`THROW`; the grader fails a test where an error is raised.
+- On rejection or invalid input, leave the database unchanged. Report errors only with `RETURN <code>`, never `RAISERROR`/`THROW`; the grader fails a test where an error is raised.
+- No transactions (and no TRY/CATCH) in this milestone. Validate everything before the first write, so a rejected call has changed nothing.
 - If a requirement implies authorization but takes no ID to authorize with, skip the check (deferred to MS3).
 - Helper procedures and functions are allowed, but `dropAllProceduresFunctionsViews` must drop them too.
 
@@ -41,7 +42,8 @@ Each member owns one work-split slot (spec Section 5) and every item in it. All 
 | 5: Riders, ratings and monitoring | Farida Tarek | 64-29168 |
 
 - `createAllTables` and `dropAllTables` are attributed to Youssef (slot 4).
-- `Recommended_Products` is Farida's (slot 5), although the spec also lists it under slot 2.
+- `Recommended_Products` is Farida's: the revised PDF moved it from slot 2 to slot 5's Hard column.
+- `clearAllTables` was dropped from the requirements (CMS, 2026-11-14). It stays in the file because the public tests still call it.
 
 ## AI use
 
@@ -60,6 +62,7 @@ The PDF says AI tools are prohibited. That line is outdated: the instructor allo
 
 - Views and inline table-valued functions check their referenced tables when they're created, so the script must `EXEC dbo.createAllTables;` before the first view (spec 4.2). Procedures and multi-statement functions use deferred name resolution and don't need this. The tests guide also expects the tables to exist once the file has run (spec 6.4).
 - If you do need the PDF: `pdftotext -layout` scrambles the Appendix A tables, so use `pdftotext -table`. PDF page = printed page + 1.
+- The PDF marks revisions by colour: green is new, red was moved, and red with strikethrough is removed. Text extraction loses colour and strikethrough. When something in the spec looks contradictory, check those marks before asking anyone. With `pypdf`, the fill colour tracked through `extract_text(visitor_operand_before=...)` finds coloured text. Red lines or rectangles drawn on a page are the strikethroughs.
 
 ## Testing locally
 
@@ -69,18 +72,22 @@ The PDF says AI tools are prohibited. That line is outdated: the instructor allo
 - It writes `<file>_results.txt` next to the `.sql` file it was given.
 - 2026-11-19: 109 of 109 public tests pass.
 
-**Team private tests:** [tests/team_private_tests.sql](tests/team_private_tests.sql) is ours, not part of the course kit. It has 373 checks of edge cases the TAs' private tests may use, plus path tests, and reuses the course seed data. Run `Team_28.sql`, then `sqlcmd -S "(localdb)\MSSQLLocalDB" -i tests\team_private_tests.sql`. It prints only failures and a pass count. It ends by dropping the tables, procedures, functions and views to test 4.1, so run `Team_28.sql` again afterwards. A check marked "(our choice)" pins down one of the open return codes below. Update it if CMS decides otherwise. 2026-11-19: 373 of 373 pass.
+**Team private tests:** [tests/team_private_tests.sql](tests/team_private_tests.sql) is ours, not part of the course kit. It has 397 checks of edge cases the TAs' private tests may use, plus path tests, and reuses the course seed data. Run `Team_28.sql`, then `sqlcmd -S "(localdb)\MSSQLLocalDB" -i tests\team_private_tests.sql`. Both use `LocalDeliveryMarketplace_Team_28`, so to keep that database intact run renamed copies of both files, as for the grader. It prints only failures and a pass count. It ends by dropping the tables, procedures, functions and views to test 4.1, so run `Team_28.sql` again afterwards. A check marked "(our choice)" pins down one of the open return codes below. Update it if CMS decides otherwise. 2026-11-19: 397 of 397 pass.
 
 **Ad-hoc checks:** SQL Server LocalDB is installed: `sqlcmd -S "(localdb)\MSSQLLocalDB"`. The script drops and recreates `LocalDeliveryMarketplace_Team_28`. To test without clobbering someone's working database:
 1. Copy the script and replace the database name with a throwaway one, e.g. `sed 's/LocalDeliveryMarketplace_Team_28/Test_Team_28/g'`.
 2. Append test statements (`EXEC dbo.createAllTables;`, sample inserts, ...) and finish with `USE master; DROP DATABASE Test_Team_28;`.
 3. Run `sqlcmd -S "(localdb)\MSSQLLocalDB" -i <file>`. From Git Bash, pass a Windows path (`cygpath -w`).
 
+## Settled by the TA (office hours, 2026-11-19)
+
+- No transactions in this milestone.
+- Passwords are case-sensitive: the login functions and `Change_Password` compare with `COLLATE Latin1_General_CS_AS`. Trailing spaces are still ignored, as in any SQL Server `=`.
+- Tables use exactly the Appendix A definitions, so there are no `CHECK (... IN (...))` constraints. Procedures enforce the Section 2.3 lists (see Hard rules).
+- Cancelled orders stay in the tables, but queries leave them out. `Recommended_Products` ignores them both for "ordered categories" and for "products already ordered".
+
 ## Open questions (ask on CMS)
 
-- Appendix A lists no `CHECK (... IN (...))` constraints for status/type columns, although Section 1 says they must hold only the Section 2.3 values. They aren't added for now.
-- The work split gives **Detect_Voucher_Abuse** to Student 1, but Section 4 never specifies it.
-- **Recommended_Products**: the revised description lists it as a Hard item for Student 5, but it's still in Student 2's list and still missing from the official list of 8 hard requirements. It's attributed to Farida (slot 5) for now.
 - Return codes the spec and the public tests leave open. Each is a judgment call; change it if CMS says otherwise:
   - `Checkout_Cart`: invalid voucher (another customer's, Used, expired or missing) → -1; a business closed now (BR-6) → -4; no available rider → -8, checked after the payment check (-7).
   - `Create_Cart`: customer without an active address → -1.
@@ -88,3 +95,4 @@ The PDF says AI tools are prohibited. That line is outdated: the instructor allo
   - Customer and partner procedures given an ID of the wrong user type → -3.
   - `Add_To_Cart`, `Remove_From_Cart` and `Toggle_Favorite` don't check for Blacklisted customers, because BR-1 doesn't list those actions.
   - `Update_Business_Info`: a NULL phone adds no phone, and a NULL website clears the website.
+- Section 2.3 lists the actions as Add, Update, Remove, but the public tests call `Update_Delete_Customer_Address` with `'Update'` and `'Delete'`. It accepts `'Update'`, `'Delete'` and `'Remove'`.

@@ -460,6 +460,8 @@ EXEC #Rej '4.1.b one payment per order', N'INSERT INTO dbo.Payment (amount, meth
 EXEC #Rej '4.1.b refunded_amount <= amount', N'UPDATE dbo.Payment SET refunded_amount = 260.01 WHERE payment_id = 1';
 EXEC #Rej '4.1.b one feedback per SubOrder', N'INSERT INTO dbo.Feedback (headline, rating, suborder_id) VALUES (''X'', 5, 1)';
 EXEC #Rej '4.1.b rating 1..5', N'UPDATE dbo.Feedback SET rating = 0 WHERE feedback_id = 1';
+EXEC #V '4.1.b only the CHECK constraints of Appendix A (none on status/type columns)', N'SELECT STRING_AGG(OBJECT_NAME(parent_object_id), '','') WITHIN GROUP (ORDER BY OBJECT_NAME(parent_object_id)) FROM sys.check_constraints', 'Business,CartItem,Customer,Delivery,Feedback,Payment,Product,Product,Voucher,Zone';
+EXEC #V 'Section 1: no procedure uses a transaction', N'SELECT COUNT(*) FROM sys.sql_modules WHERE definition LIKE ''%BEGIN TRAN%'' OR definition LIKE ''%COMMIT%'' OR definition LIKE ''%ROLLBACK%''', '0';
 GO
 -- A fresh reset: the rejected inserts above used up identity values.
 EXEC #Reset;
@@ -544,6 +546,12 @@ EXEC #V '4.3.h new password works', N'SELECT dbo.AdminLoginValidation(''mona.has
 EXEC #T '4.3.h missing user', N'dbo.Change_Password 999, ''Pass@001'', ''New@1'', ''New@1'', @ok OUTPUT', -1;
 EXEC #V '4.3.h success = 0', N'SELECT ok FROM #Last', '0';
 EXEC #T '4.3.h NULL new password', N'dbo.Change_Password 17, ''Pass@017'', NULL, NULL, @ok OUTPUT', -1;
+EXEC #V '4.3.d password is case-sensitive', N'SELECT CONCAT(dbo.CustomerLoginValidation(''ahmed.salem'', ''Pass@017''), dbo.CustomerLoginValidation(''ahmed.salem'', ''pass@017''), dbo.CustomerLoginValidation(''ahmed.salem'', ''PASS@017''))', '100';
+EXEC #V '4.3.e-g password is case-sensitive', N'SELECT CONCAT(dbo.PartnerLoginValidation(''tarek.fouad'', ''pass@004''), dbo.RiderLoginValidation(''ali.ibrahim'', ''PASS@012''), dbo.AdminLoginValidation(''karim.adel'', ''pass@002''))', '000';
+EXEC #T '4.3.h old password in the wrong case', N'dbo.Change_Password 17, ''pass@017'', ''New@17'', ''New@17'', @ok OUTPUT', -1;
+EXEC #T '4.3.h repeat differs only in case', N'dbo.Change_Password 17, ''Pass@017'', ''New@17'', ''new@17'', @ok OUTPUT', -1;
+EXEC #T '4.3.h change to New@17', N'dbo.Change_Password 17, ''Pass@017'', ''New@17'', ''New@17'', @ok OUTPUT', 0;
+EXEC #V '4.3.h only the exact new password works', N'SELECT CONCAT(dbo.CustomerLoginValidation(''ahmed.salem'', ''New@17''), dbo.CustomerLoginValidation(''ahmed.salem'', ''new@17''), dbo.CustomerLoginValidation(''ahmed.salem'', ''Pass@017''))', '100';
 GO
 
 /* =============================== 4.4 Admin =============================== */
@@ -554,6 +562,8 @@ EXEC #T '4.4.a Zone Admin without zone', N'dbo.Create_Admin ''A'', NULL, ''B'', 
 EXEC #T '4.4.a unknown role', N'dbo.Create_Admin ''A'', NULL, ''B'', ''x.y'', ''Pass@030'', ''x.y@mail.com'', ''01000000031'', NULL, ''Manager'', 1, 1', -1;
 EXEC #T '4.4.a duplicate username', N'dbo.Create_Admin ''A'', NULL, ''B'', ''karim.adel'', ''Pass@030'', ''x.y@mail.com'', ''01000000031'', NULL, ''Zone Admin'', 1, 1', -2;
 EXEC #T '4.4.a a customer as caller', N'dbo.Create_Admin ''A'', NULL, ''B'', ''x.y'', ''Pass@030'', ''x.y@mail.com'', ''01000000031'', NULL, ''Zone Admin'', 1, 17', -3;
+EXEC #T '4.4.a lower-case role', N'dbo.Create_Admin ''A'', NULL, ''B'', ''zone.admin2'', ''Pass@031'', ''zone.admin2@mail.com'', ''01000000031'', NULL, ''zone admin'', 1, 1', 0;
+EXEC #V '4.4.a role stored exactly as in Section 2.3', N'SELECT CASE WHEN a.role = ''Zone Admin'' COLLATE Latin1_General_CS_AS THEN ''exact'' ELSE a.role END FROM dbo.Admin a JOIN dbo.Users u ON u.user_id = a.admin_id WHERE u.username = ''zone.admin2''', 'exact';
 EXEC #T '4.4.b Super Admin approves any zone', N'dbo.Approve_Business 5, 1', 0;
 EXEC #T '4.4.b Rejected business', N'dbo.Approve_Business 8, 1', -4;
 EXEC #T '4.4.b Suspended business', N'dbo.Approve_Business 6, 1', -4;
@@ -650,6 +660,7 @@ EXEC #T '4.5.a restaurant without cuisine_type', N'dbo.Register_Business 11, ''X
 EXEC #T '4.5.a phone with letters', N'dbo.Register_Business 11, ''X'', NULL, NULL, 1, ''10:00'', ''23:00'', 20, ''0220000009x'', ''Pharmacy'', NULL, NULL, ''Retail''', -1;
 EXEC #T '4.5.a empty name', N'dbo.Register_Business 11, '''', NULL, NULL, 1, ''10:00'', ''23:00'', 20, ''02200000098'', ''Pharmacy'', NULL, NULL, ''Retail''', -1;
 EXEC #T '4.5.a NULL hours', N'dbo.Register_Business 11, ''X'', NULL, NULL, 1, NULL, ''23:00'', 20, ''02200000098'', ''Pharmacy'', NULL, NULL, ''Retail''', -1;
+EXEC #T '4.5.a unknown business type', N'dbo.Register_Business 11, ''X'', NULL, NULL, 1, ''10:00'', ''23:00'', 20, ''02200000098'', ''Bakery'', NULL, NULL, NULL', -1;
 EXEC #T '4.5.a a customer as partner (our choice)', N'dbo.Register_Business 17, ''X'', NULL, NULL, 1, ''10:00'', ''23:00'', 20, ''02200000098'', ''Pharmacy'', NULL, NULL, ''Retail''', -3;
 EXEC #T '4.5.b overnight hours', N'dbo.Update_Business_Info 1, ''22:00'', ''06:00'', NULL, ''www.koshary.example''', 0;
 EXEC #T '4.5.b a phone another business already has', N'dbo.Update_Business_Info 1, ''22:00'', ''06:00'', ''02200000002'', NULL', 0;
@@ -685,6 +696,9 @@ EXEC #T '4.6.b delete an unused address, lower-case action', N'dbo.Update_Delete
 EXEC #T '4.6.b address of a Placed order', N'dbo.Update_Delete_Customer_Address 22, 8, ''X'', 1, ''Update''', -4;
 EXEC #T '4.6.b delete an address that has carts', N'dbo.Update_Delete_Customer_Address 20, 6, NULL, NULL, ''Delete''', -4;
 EXEC #T '4.6.b empty description', N'dbo.Update_Delete_Customer_Address 20, 12, '''', 3, ''Update''', -1;
+EXEC #T '4.6.b Remove, the Section 2.3 word for Delete', N'dbo.Update_Delete_Customer_Address 17, 10, NULL, NULL, ''Remove''', 0;
+EXEC #V '4.6.b removed', N'SELECT COUNT(*) FROM dbo.Address WHERE address_id = 10', '0';
+EXEC #T '4.6.b unknown action', N'dbo.Update_Delete_Customer_Address 17, 2, NULL, NULL, ''Add''', -1;
 EXEC #T '4.6.c back to an older address', N'dbo.Change_Active_Address 20, 12', 0;
 EXEC #T '4.6.e cart for the new active address', N'dbo.Create_Cart 20', 0;
 EXEC #V '4.6.e new cart', N'SELECT CONCAT(cart_id, ''/'', status, ''/'', address_id) FROM dbo.Cart WHERE cart_id = (SELECT MAX(cart_id) FROM dbo.Cart)', '16/Active/12';
@@ -785,6 +799,11 @@ DECLARE @o2 TIME = DATEADD(MINUTE, -90, CAST(GETDATE() AS TIME)), @c2 TIME = DAT
 EXEC dbo.Update_Business_Info 4, @o2, @c2, NULL, NULL;
 EXEC #T '4.6.i business open right now', N'dbo.Checkout_Cart 11, NULL, ''Cash'', NULL', 0;
 GO
+EXEC #Reset;
+EXEC #T '4.6.i unknown payment method', N'dbo.Checkout_Cart 9, NULL, ''Bitcoin'', NULL', -1;
+EXEC #T '4.6.i lower-case payment method', N'dbo.Checkout_Cart 9, NULL, ''cash'', NULL', 0;
+EXEC #V '4.6.i method stored exactly as in Section 2.3', N'SELECT CASE WHEN method = ''Cash'' COLLATE Latin1_General_CS_AS THEN ''exact'' ELSE method END FROM dbo.Payment WHERE order_id = 9', 'exact';
+GO
 
 /* =============================== 4.6 Cancel, reorder, history, favorites =============================== */
 EXEC #Reset;
@@ -833,6 +852,16 @@ EXEC #V '4.6.p business favorites are not listed', N'SELECT COUNT(*) FROM dbo.My
 EXEC #T '4.6.o NULL item type', N'dbo.Toggle_Favorite 23, 1, NULL', -1;
 EXEC #V '4.6.q only unseen products of ordered categories', N'SELECT STRING_AGG(CONCAT(product_id, '':'', category, '':'', final_price), '','') FROM dbo.Recommended_Products(18)', '7:Desserts:70.00';
 EXEC #V '4.6.q customer without orders', N'SELECT COUNT(*) FROM dbo.Recommended_Products(23)', '0';
+GO
+-- Cancelled orders stay in the tables but don't count as ordered (TA, 2026-11-19).
+EXEC #Reset;
+EXEC #T '4.6.q setup: Sara orders Tiramisu', N'dbo.Add_To_Cart 10, 7, 1, NULL', 0;
+EXEC #T '4.6.q setup: checkout', N'dbo.Checkout_Cart 10, NULL, ''Cash'', NULL', 0;
+EXEC #V '4.6.q an ordered product is not recommended', N'SELECT COUNT(*) FROM dbo.Recommended_Products(18)', '0';
+EXEC #T '4.6.q setup: cancel that order', N'dbo.Cancel_Order 9', 0;
+EXEC #V '4.6.q a product of a cancelled order is recommended again', N'SELECT STRING_AGG(CONCAT(product_id, '':'', category, '':'', final_price), '','') FROM dbo.Recommended_Products(18)', '7:Desserts:70.00';
+EXEC #T '4.6.q setup: lift the blacklist of Youssef', N'dbo.Lift_Customer_Blacklist 21, 2', 0;
+EXEC #V '4.6.q only a cancelled order: no ordered category', N'SELECT COUNT(*) FROM dbo.Recommended_Products(21)', '0';
 GO
 
 /* =============================== 4.7 Rider =============================== */

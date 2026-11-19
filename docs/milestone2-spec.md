@@ -7,12 +7,22 @@ Source: `docs/Milestone 2, Project Description.pdf`, the original assignment PDF
 
 Revision history:
 - 2026-11-14: first transcription.
-- 2026-11-14: updated to the revised project description. Added the authorization rule (Section 1, Implementation rules) and Recommended_Products in Student 5's Hard column (Section 5). Nothing else changed, including the schema. Added Section 6 from the public tests guide.
+- 2026-11-14: updated to the revised project description and added Section 6 from the public tests guide. The schema didn't change.
+- 2026-11-19: corrected the revision marks. The first transcription read struck-through text as live, because `pdftotext` drops colour and strikethrough.
 
-Transcription notes (inconsistencies found in the PDF itself; see `AGENTS.md` for the AI clause):
-- Section 5 assigns **Detect_Voucher_Abuse** to Student 1, but Section 4 never specifies it.
-- **Recommended_Products** (4.6.q) is tagged [Hard], and the revised Section 5 lists it as a Hard item for Student 5. But it is still missing from Section 1's list of 8 hard requirements, it is still in Student 2's "Other" list, and the Section 5 intro still says Student 5 gets one hard requirement.
-- Appendix A gives no CHECK constraints for status/type columns, though Section 1 says they must store exactly the Section 2.3 values.
+Revision marks in the PDF: green text is new, red text was moved, and red text with strikethrough is removed. The revised PDF changes exactly these:
+- Removed: the rule that procedures changing more than one row or table run inside a transaction (Section 1).
+- Added: the authorization rule (Section 1).
+- Removed: Detect_Voucher_Abuse from Student 1, and Recommended_Products from Student 2 (Section 5).
+- Added: Recommended_Products as Student 5's second Hard item (Section 5).
+- The red `[Hard]` / `[Hardest!]` tags in Section 4 are only styling, not revision marks.
+
+A CMS announcement on 2026-11-14 removed **clearAllTables** (4.1.e). The PDF doesn't mark this, and the public tests still call it.
+
+Remaining inconsistencies in the PDF itself (see `AGENTS.md` for the AI clause):
+- Recommended_Products is not in Section 1's list of 8 hard requirements, and the Section 5 intro still says Student 5 gets one hard requirement.
+- Appendix A gives no CHECK constraints for status/type columns, though Section 1 says they must store exactly the Section 2.3 values. (TA, 2026-11-19: don't add any; procedures enforce the lists.)
+- Section 2.3 lists the actions as Add, Update, Remove, but the public tests call Update_Delete_Customer_Address with `'Update'` and `'Delete'`.
 
 ---
 
@@ -45,7 +55,7 @@ Every stored procedure returns 0 on success and a Section 2.4 code on any error.
 
 ### Implementation rules
 - When a requirement says reject, or input is invalid, leave the database unchanged and return the matching error code.
-- Procedures changing more than one row or table run inside a transaction (all or nothing).
+- ~~Procedures changing more than one row or table run inside a transaction (all or nothing).~~ (removed in the revised PDF; TA, 2026-11-19: no transactions in this milestone)
 - Functions can't modify data, so every data-changing requirement is a stored procedure.
 - Unless stated otherwise, input IDs can be assumed to exist. Helper functions/procedures are allowed; `dropAllProceduresFunctionsViews` must drop them too.
 - Authorization is not universally required in this milestone. If an SP/function/view needs authorization but no ID is passed as input for it, assume the authorization step is delayed to MS3 (i.e. skip it).
@@ -367,7 +377,7 @@ Format: **Name** — Type. Input → Output. All "Output: Nothing" procedures st
 - b) **createAllTables** — SP. Create all tables of Section 3 with the types/constraints of Appendix A. No input/output.
 - c) **dropAllTables** — SP. Drop all tables in an order respecting the FKs.
 - d) **dropAllProceduresFunctionsViews** — SP. Drop all procedures (except this one), functions and views, including helpers.
-- e) **clearAllTables** — SP. Delete all records and reset every identity so the next ID is 1. (Tests guide: afterwards every table is empty, the next zone inserted gets zone_id 1 and the next user gets user_id 1.)
+- e) **clearAllTables** — SP. *Removed from the requirements by the CMS announcement of 2026-11-14; the public tests still call it.* Delete all records and reset every identity so the next ID is 1. (Tests guide: afterwards every table is empty, the next zone inserted gets zone_id 1 and the next user gets user_id 1.)
 
 ### 4.2 Basic Data Retrieval
 - a) **allBusinessProfiles** — View. All businesses (any status) with their partner; partner_name = first name + ' ' + last name. → (business_id, business_name, business_type, zone_name, partner_name, status, opening_hour, closing_hour)
@@ -472,13 +482,13 @@ Five areas of comparable effort. Three students get two hard requirements; Stude
 
 | Student / area | Hard | Other requirements |
 |---|---|---|
-| 1: Accounts and admin governance | Blacklist_Customer | Customer_Register, Partner_Register, Rider_Register, the 4 login functions, Change_Password, Create_Admin, Approve_Business, Reject_Business, Assign_Admin_Zone, Issue_Voucher, Lift_Customer_Blacklist, ActiveVouchers, Detect_Voucher_Abuse |
-| 2: Partners and catalog | Search_Platform, TopSellingProducts | Register_Business, Update_Business_Info, Upsert_Product, Toggle_Product_Status, Set_Product_Promotion, BusinessSalesReport, allBusinessProfiles, PendingBusinessApprovals, Nearby_Businesses_By_Category, Toggle_Favorite, My_Favorites, Recommended_Products |
+| 1: Accounts and admin governance | Blacklist_Customer | Customer_Register, Partner_Register, Rider_Register, the 4 login functions, Change_Password, Create_Admin, Approve_Business, Reject_Business, Assign_Admin_Zone, Issue_Voucher, Lift_Customer_Blacklist, ActiveVouchers. ~~Detect_Voucher_Abuse~~ |
+| 2: Partners and catalog | Search_Platform, TopSellingProducts | Register_Business, Update_Business_Info, Upsert_Product, Toggle_Product_Status, Set_Product_Promotion, BusinessSalesReport, allBusinessProfiles, PendingBusinessApprovals, Nearby_Businesses_By_Category, Toggle_Favorite, My_Favorites. ~~Recommended_Products~~ |
 | 3: Shopping and ordering | Checkout_Cart, Cancel_Order | Add_Customer_Address, Update_Delete_Customer_Address, Add_Card, Create_Cart, Add_To_Cart, Remove_From_Cart, Change_Active_Address, Calculate_Voucher_Discount, Reorder, My_Order_History |
 | 4: Database, zones and business moderation | Suspend_Business, Reinstate_Business | Database statement, createAllTables, dropAllTables, dropAllProceduresFunctionsViews, clearAllTables, Create_Zone, Update_Zone_Fee, BusinessesPerZone, ZoneOrderReport, Daily_Revenue_Report |
 | 5: Riders, ratings and monitoring | Reconcile_Order_Totals, Recommended_Products | Set_Rider_Availability, My_Active_Deliveries, Mark_Picked_Up, Mark_Delivered, My_Earnings, My_Rating_Summary, RiderPerformanceSummary, ZoneDeliveryPerformance, TopRiders, Submit_Feedback, Rate_Rider, BusinessRatingsSummary, BusinessFeedbackOverview, Platform_Health_Snapshot, My_Delivery_History |
 
-Note: the revised PDF lists Recommended_Products both as a Hard item for Student 5 and as an "Other" item for Student 2 (see Transcription notes at the top). Confirm on CMS which student owns it.
+Struck through in the revised PDF: Detect_Voucher_Abuse (removed) and Recommended_Products under Student 2 (moved to Student 5's Hard column, in green).
 
 ---
 
